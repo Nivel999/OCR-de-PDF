@@ -3,3 +3,22 @@ __pycache__/
 saida/
 entrada/*
 !entrada/.gitkeep
+
+# Sistema operacional, editores e worktrees de agentes
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+.worktrees/
+
+# Dependências e artefatos de uma futura interface web
+node_modules/
+dist/
+build/
+*.log
+
+# Segredos locais
+.env
+.env.*
+!.env.example

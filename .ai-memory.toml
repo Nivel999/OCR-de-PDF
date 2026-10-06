@@ -1,0 +1,5 @@
+# Names this repository's project memory in lore (see .ai/workflows/project-memory.md).
+# Commit this file: every clone that carries it, on any machine, shares the same memory.
+# Without it, captures land in a default workspace the server refuses and are dropped.
+workspace = "OCR de Pdf e Texto"
+project   = "OCR de Pdf e Texto"
