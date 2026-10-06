@@ -12,6 +12,7 @@ import time
 from dataclasses import replace
 from pathlib import Path
 
+from .analise_imovel import consolidar_consistencia, extrair_dados_imovel
 from .config import RAIZ_PROJETO, ConfigOCR
 from .extrator import Documento, extrair_pdf, reprocessar_paginas
 from .preprocessamento import ESTRATEGIAS
@@ -88,7 +89,7 @@ def _reprocessar_paginas_pendentes(
 
 def processar_pasta(args: argparse.Namespace, cfg: ConfigOCR) -> int:
     entrada, saida = Path(args.entrada), Path(args.saida)
-    pastas = {n: saida / n for n in ("textos", "relatorios", "resumos", "debug")}
+    pastas = {n: saida / n for n in ("textos", "relatorios", "resumos", "extracoes", "debug")}
     for n in ("textos", "relatorios"):
         pastas[n].mkdir(parents=True, exist_ok=True)
 
@@ -96,6 +97,7 @@ def processar_pasta(args: argparse.Namespace, cfg: ConfigOCR) -> int:
     pdfs = sorted(p for p in entrada.rglob("*") if p.suffix.lower() == ".pdf")
     processados = 0
     trabalhos: list[tuple[Path, Documento, str]] = []
+    extracoes = []
 
     for pdf in pdfs:
         nome = pdf.relative_to(entrada).with_suffix("").as_posix().replace("/", "__")
@@ -136,6 +138,25 @@ def processar_pasta(args: argparse.Namespace, cfg: ConfigOCR) -> int:
                 print("  resumo gerado")
             except Exception as e:
                 print(f"  ERRO no resumo: {e}")
+        if args.analise_imovel:
+            pastas["extracoes"].mkdir(parents=True, exist_ok=True)
+            try:
+                extracao = extrair_dados_imovel(
+                    doc.arquivo, ((pagina.numero, pagina.texto) for pagina in doc.paginas), backend
+                )
+                (pastas["extracoes"] / f"{nome}.json").write_text(
+                    json.dumps(extracao, ensure_ascii=False, indent=2), encoding="utf-8"
+                )
+                extracoes.append(extracao)
+                print("  dados do imóvel extraídos")
+            except Exception as e:
+                print(f"  ERRO na extração de dados do imóvel: {e}")
+
+    if args.analise_imovel and extracoes:
+        (saida / "consistencia_imovel.json").write_text(
+            json.dumps(consolidar_consistencia(extracoes), ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        print(f"  consistência dos imóveis -> {saida / 'consistencia_imovel.json'}")
 
     return processados
 
@@ -156,12 +177,16 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--reprocessar", action="store_true", help="refaz PDFs que já têm saída")
     ap.add_argument("--llm", default="nenhum", choices=["nenhum", "ollama", "anthropic"],
                     help="backend para gerar resumos")
+    ap.add_argument("--analise-imovel", action="store_true",
+                    help="extrai dados imobiliários estruturados e compara consistência entre PDFs (exige --llm)")
     ap.add_argument("--modelo", help="modelo da LLM (ex.: qwen2.5:7b no Ollama)")
     ap.add_argument("--tamanho-bloco", type=int, default=12000,
                     help="máx. de caracteres por chamada à LLM (textos maiores são divididos)")
     ap.add_argument("--monitorar", type=int, metavar="SEGUNDOS",
                     help="fica vigiando a pasta de entrada, verificando a cada N segundos")
     args = ap.parse_args(argv)
+    if args.analise_imovel and args.llm == "nenhum":
+        ap.error("--analise-imovel exige selecionar uma LLM com --llm ollama ou --llm anthropic")
 
     cfg = ConfigOCR(idioma=args.idioma, dpi=args.dpi, estrategia=args.estrategia, psm=args.psm,
                     forcar_ocr=args.forcar_ocr, debug_imagens=args.debug_imagens)

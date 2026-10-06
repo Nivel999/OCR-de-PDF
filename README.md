@@ -1,7 +1,7 @@
-# OCR de PDF + Resumo com LLM
+# OCR de PDF, resumo e análise documental de imóveis
 
 Lê todos os PDFs de `entrada/`, extrai o texto (nativo ou via OCR com Tesseract) e,
-opcionalmente, gera um resumo de cada um com uma LLM.
+opcionalmente, gera resumos e uma análise estruturada de documentação imobiliária com LLM.
 
 ## Como funciona
 
@@ -47,6 +47,7 @@ Os modelos de idioma ficam em `tessdata/` (`por` e `osd`; para outros idiomas, b
 .venv\Scripts\python run.py --forcar-ocr            # ignora texto nativo (ex.: camada OCR antiga ruim)
 .venv\Scripts\python run.py --monitorar 30          # vigia a pasta a cada 30s
 .venv\Scripts\python run.py --llm ollama --modelo qwen2.5:7b   # gera resumos com LLM local
+.venv\Scripts\python run.py --llm ollama --modelo qwen2.5:7b --analise-imovel  # análise imobiliária
 ```
 
 PDFs já processados são pulados (a menos que o PDF mude ou se use `--reprocessar`).
@@ -58,6 +59,8 @@ saida/
   textos/<nome>.txt        texto extraído, com marcadores "--- Página N ---"
   relatorios/<nome>.json   por página: método, motivo, confiança do OCR, estratégia, rotação
   resumos/<nome>.md        resumo (se --llm for usado)
+  extracoes/<nome>.json    dados imobiliários com evidência de página (se --analise-imovel)
+  consistencia_imovel.json comparação dos dados entre todos os PDFs (se --analise-imovel)
   debug/<nome>/            imagens pré-processadas (se --debug-imagens)
 ```
 
@@ -72,12 +75,12 @@ devem ser reprocessadas em um DPI maior.
 | 70% a 79,9% | `dificil` | Leitura difícil. | Reprocessar a página em 400 DPI; se ela já estiver em 400 DPI, usar 600 DPI. |
 | Abaixo de 70% | `baixa` | OCR pouco confiável. | Reprocessar em 400/600 DPI; em 600 DPI, revisar manualmente ou melhorar o scan. |
 
-O DPI sugerido aparece apenas como recomendação no relatório; o comando atual ainda processa
-o PDF inteiro com o DPI escolhido em `--dpi`. Ao terminar um processamento interativo, o
-programa lista as páginas abaixo de 80% e pergunta se deve reprocessá-las: primeiro em 400 DPI
-e, se continuarem abaixo da régua, em 600 DPI. Se ainda falharem em 600 DPI, exibe um alerta para
-revisão manual da página no PDF original. Em execução não interativa, ele não pergunta nem
-reprocessa automaticamente.
+O relatório sempre registra o DPI utilizado e a próxima ação recomendada. Ao terminar um
+processamento interativo, o programa lista as páginas abaixo de 80% e pergunta se deve
+reprocessá-las: primeiro em 400 DPI e, se continuarem abaixo da régua, em 600 DPI. Somente as
+páginas indicadas são refeitas. Se ainda falharem em 600 DPI, o programa exibe um alerta para
+revisão manual no PDF original. Em execução não interativa, ele não pergunta nem reprocessa
+automaticamente; as recomendações continuam no JSON.
 
 ## Resumos com LLM (`--llm`)
 
@@ -86,3 +89,37 @@ reprocessa automaticamente.
   para caber no contexto de modelos 7B.
 - `anthropic` — Claude via API, para comparar qualidade (`pip install anthropic` e `ANTHROPIC_API_KEY`).
 - `nenhum` — padrão; só extrai o texto.
+
+## Análise de dados do imóvel (`--analise-imovel`)
+
+`--analise-imovel` exige uma LLM (`--llm ollama` ou `--llm anthropic`). O modo analisa cada
+página individualmente e gera uma
+extração estruturada dos campos prioritários: nome do proprietário, CPF/CNPJ, nome da
+propriedade, classificação do domínio, matrícula e código INCRA/SNCR. Também registra atributos
+explícitos relevantes, como área, localização, CAR, CCIR, NIRF, ITR, cartório, confrontações,
+ônus e restrições.
+
+Cada valor salvo tem `arquivo`, `pagina` e um trecho de `evidencia`; o arquivo e a página são
+anexados pelo programa, não deduzidos pelo modelo. Ao fim do lote,
+`consistencia_imovel.json` agrupa os valores encontrados e marca cada campo como:
+
+- `consistente`: os arquivos que possuem o campo concordam;
+- `divergente`: foram encontrados valores diferentes — use as fontes listadas para conferir;
+- `nao_encontrado`: nenhum PDF trouxe o campo de forma explícita.
+
+Exemplo de uma evidência produzida em `extracoes/<nome>.json`:
+
+```json
+{
+  "valor": "12.345",
+  "arquivo": "matricula.pdf",
+  "pagina": 2,
+  "evidencia": "Matrícula nº 12.345"
+}
+```
+
+O modelo é instruído a não inferir dados ausentes. Se a resposta não estiver no formato esperado,
+o arquivo de extração registra um alerta para a página em vez de transformar uma suposição em dado.
+
+Prefira `--llm ollama` para manter os PDFs e seus dados pessoais processados localmente. Ao usar
+`--llm anthropic`, o texto extraído — incluindo eventuais CPF/CNPJ — é enviado à API escolhida.
