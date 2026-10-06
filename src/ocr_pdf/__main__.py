@@ -9,16 +9,81 @@ import argparse
 import json
 import sys
 import time
+from dataclasses import replace
 from pathlib import Path
 
 from .config import RAIZ_PROJETO, ConfigOCR
-from .extrator import extrair_pdf
+from .extrator import Documento, extrair_pdf, reprocessar_paginas
 from .preprocessamento import ESTRATEGIAS
+from .qualidade import avaliar_confianca_ocr
 from .resumo import criar_backend, resumir
 
 
 def ja_processado(pdf: Path, saida_txt: Path) -> bool:
     return saida_txt.exists() and saida_txt.stat().st_mtime >= pdf.stat().st_mtime
+
+
+def _paginas_pendentes(trabalhos: list[tuple[Path, Documento, str]]) -> list[tuple[Path, Documento, str, int, int]]:
+    """Retorna PDFs/páginas que precisam de uma nova tentativa com DPI maior."""
+    pendentes = []
+    for pdf, doc, nome in trabalhos:
+        for pagina in doc.paginas:
+            if pagina.metodo != "ocr":
+                continue
+            dpi_atual = pagina.dpi_ocr or doc.dpi_ocr
+            avaliacao = avaliar_confianca_ocr(pagina.confianca, dpi_atual)
+            proximo_dpi = avaliacao["proximo_dpi_sugerido"]
+            if proximo_dpi is not None:
+                pendentes.append((pdf, doc, nome, pagina.numero, proximo_dpi))
+    return pendentes
+
+
+def _reprocessar_paginas_pendentes(
+    trabalhos: list[tuple[Path, Documento, str]], cfg: ConfigOCR, pasta_debug: Path
+) -> None:
+    """Pergunta e reprocessa em 400/600 DPI apenas as páginas abaixo da régua de qualidade."""
+    if not trabalhos:
+        return
+    if not sys.stdin.isatty():
+        print("Modo não interativo: páginas com baixa confiança não serão reprocessadas automaticamente.")
+    else:
+        while pendentes := _paginas_pendentes(trabalhos):
+            print("\nPáginas que precisam de uma nova tentativa de OCR:")
+            for pdf, _, _, numero, dpi in pendentes:
+                print(f"  - {pdf.name}, página {numero}: reprocessar em {dpi} DPI")
+
+            resposta = input("Deseja reprocessar essas páginas? [s/N] ").strip().lower()
+            if resposta not in {"s", "sim", "y", "yes"}:
+                break
+
+            grupos: dict[tuple[Path, int], list[tuple[Documento, str, int]]] = {}
+            for pdf, doc, nome, numero, dpi in pendentes:
+                grupos.setdefault((pdf, dpi), []).append((doc, nome, numero))
+
+            for (pdf, dpi), itens in grupos.items():
+                doc = itens[0][0]
+                nome = itens[0][1]
+                numeros = [numero for _, _, numero in itens]
+                print(f"  Reprocessando {pdf.name}, páginas {numeros}, em {dpi} DPI...")
+                novas_paginas, segundos = reprocessar_paginas(
+                    pdf,
+                    replace(cfg, dpi=dpi),
+                    numeros,
+                    pasta_debug / nome if cfg.debug_imagens else None,
+                )
+                doc.atualizar_paginas(novas_paginas, segundos)
+
+    for pdf, doc, _, in trabalhos:
+        for pagina in doc.paginas:
+            if pagina.metodo != "ocr":
+                continue
+            dpi_atual = pagina.dpi_ocr or doc.dpi_ocr
+            avaliacao = avaliar_confianca_ocr(pagina.confianca, dpi_atual)
+            if dpi_atual >= 600 and avaliacao["faixa"] in {"dificil", "baixa"}:
+                print(
+                    f"ATENÇÃO: {pdf.name}, página {pagina.numero} continua com {pagina.confianca:.0f}% "
+                    "mesmo em 600 DPI. Revise esta página no PDF original."
+                )
 
 
 def processar_pasta(args: argparse.Namespace, cfg: ConfigOCR) -> int:
@@ -30,6 +95,7 @@ def processar_pasta(args: argparse.Namespace, cfg: ConfigOCR) -> int:
     backend = criar_backend(args.llm, args.modelo)
     pdfs = sorted(p for p in entrada.rglob("*") if p.suffix.lower() == ".pdf")
     processados = 0
+    trabalhos: list[tuple[Path, Documento, str]] = []
 
     for pdf in pdfs:
         nome = pdf.relative_to(entrada).with_suffix("").as_posix().replace("/", "__")
@@ -44,18 +110,24 @@ def processar_pasta(args: argparse.Namespace, cfg: ConfigOCR) -> int:
             print(f"  ERRO ao ler: {e}")
             continue
 
-        txt.write_text(doc.texto, encoding="utf-8")
-        (pastas["relatorios"] / f"{nome}.json").write_text(
-            json.dumps(doc.para_dict(), ensure_ascii=False, indent=2), encoding="utf-8"
-        )
         for p in doc.paginas:
             info = f"conf {p.confianca:.0f}% [{p.estrategia}]" if p.metodo == "ocr" else ""
             if p.rotacao:
                 info += f" rotacionada {p.rotacao}°"
             print(f"  pág {p.numero:>3}: {p.metodo:<6} {len(p.texto):>6} chars  {info}  ({p.motivo})")
+        trabalhos.append((pdf, doc, nome))
+        processados += 1
+
+    _reprocessar_paginas_pendentes(trabalhos, cfg, pastas["debug"])
+
+    for _, doc, nome in trabalhos:
+        txt = pastas["textos"] / f"{nome}.txt"
+        txt.write_text(doc.texto, encoding="utf-8")
+        (pastas["relatorios"] / f"{nome}.json").write_text(
+            json.dumps(doc.para_dict(), ensure_ascii=False, indent=2), encoding="utf-8"
+        )
         m = doc.resumo_metricas()
         print(f"  total: {m['paginas']} págs ({m['paginas_ocr']} OCR), {m['segundos']}s -> {txt}")
-
         if backend is not None:
             pastas["resumos"].mkdir(parents=True, exist_ok=True)
             try:
@@ -64,7 +136,6 @@ def processar_pasta(args: argparse.Namespace, cfg: ConfigOCR) -> int:
                 print("  resumo gerado")
             except Exception as e:
                 print(f"  ERRO no resumo: {e}")
-        processados += 1
 
     return processados
 

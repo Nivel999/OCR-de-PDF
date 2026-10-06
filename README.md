@@ -61,7 +61,23 @@ saida/
   debug/<nome>/            imagens pré-processadas (se --debug-imagens)
 ```
 
-O campo `confianca` dos relatórios ajuda a achar páginas problemáticas: abaixo de ~70% vale olhar.
+O relatório JSON inclui a confiança do OCR por página e uma orientação pronta para interface
+em `qualidade_ocr`. As métricas agregadas também listam páginas que exigem revisão e as que
+devem ser reprocessadas em um DPI maior.
+
+| Confiança | Faixa no relatório | Interpretação | Próxima ação |
+|------------|--------------------|---------------|--------------|
+| 90% ou mais | `confiavel` | Scan bem reconhecido. | Nenhuma ação necessária. |
+| 80% a 89,9% | `aceitavel` | Texto utilizável, mas dados críticos podem ter erros. | Revisar nomes, datas e valores. |
+| 70% a 79,9% | `dificil` | Leitura difícil. | Reprocessar a página em 400 DPI; se ela já estiver em 400 DPI, usar 600 DPI. |
+| Abaixo de 70% | `baixa` | OCR pouco confiável. | Reprocessar em 400/600 DPI; em 600 DPI, revisar manualmente ou melhorar o scan. |
+
+O DPI sugerido aparece apenas como recomendação no relatório; o comando atual ainda processa
+o PDF inteiro com o DPI escolhido em `--dpi`. Ao terminar um processamento interativo, o
+programa lista as páginas abaixo de 80% e pergunta se deve reprocessá-las: primeiro em 400 DPI
+e, se continuarem abaixo da régua, em 600 DPI. Se ainda falharem em 600 DPI, exibe um alerta para
+revisão manual da página no PDF original. Em execução não interativa, ele não pergunta nem
+reprocessa automaticamente.
 
 ## Resumos com LLM (`--llm`)
 
