@@ -23,7 +23,7 @@
 
 | ARD | Topic | Decision |
 |---|---|---|
-| ARD-01 | {{topic}} | {{decision}} |
+| ARD-01 | Persistência e PDFs duplicados | Usar apenas `midia`, gravar resultados em cada registro e reaproveitar processamento por SHA-256. |
 | ARD-02 | {{topic}} | {{decision}} |
 
 ---
@@ -41,6 +41,18 @@
 ## ARD-02 — {{Title}}
 
 {{...}}
+
+---
+
+## Decisão aprovada — Resultados duplicados por registro de mídia
+
+Os dados extraídos pelo OCR e pelo LLM serão persistidos como novas colunas da tabela `midia`. Cada registro terá seus próprios resultados completos, mesmo quando o PDF for idêntico ao de outro registro.
+
+Antes de processar, o serviço calculará SHA-256 sobre os bytes originais do PDF. Se houver resultado concluído com o mesmo hash e a mesma versão de processamento, o serviço copiará os resultados para o novo registro em vez de repetir OCR e LLM. O hash será gravado em `pdf_sha256` para comprovar identidade byte a byte e detectar alterações posteriores do arquivo.
+
+**Rationale:** funcionários consultarão o banco diretamente pelo registro de `midia`; duplicar os campos de resultado simplifica essas consultas e evita referências ou junções adicionais. O hash reduz custo e tempo sem alterar essa experiência de consulta.
+
+**Consequências:** o worker precisa comparar `pdf_sha256` e versão do processamento antes de executar OCR/LLM, tratar PDFs idênticos recebidos simultaneamente sem processá-los em paralelo e copiar os resultados de forma atômica. Os nomes, tipos e conjunto completo de colunas ainda serão definidos no modelo de dados.
 
 ---
 

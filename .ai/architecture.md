@@ -20,6 +20,15 @@
 
 ---
 
+## Decisões confirmadas
+
+- `midia` é a única tabela de persistência prevista para esta integração. Os resultados do OCR e do LLM serão gravados como novas colunas no próprio registro de mídia.
+- Registros com IDs diferentes podem conter o mesmo PDF. O serviço calcula SHA-256 sobre os bytes originais do arquivo baixado; hashes iguais comprovam, para fins práticos, que os arquivos são idênticos byte a byte.
+- Quando já existir processamento concluído com o mesmo `pdf_sha256` e a mesma versão de processamento, o serviço copia o resultado para as colunas do novo registro. Isso preserva consulta direta por ID, sem repetir OCR e LLM.
+- O reaproveitamento é uma otimização interna: cada registro de `midia` mantém seus próprios Markdown, JSON, resumo, campos extraídos, status e metadados.
+
+---
+
 ## Services & Hosting
 
 | Service | Platform | Responsibility |

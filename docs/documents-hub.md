@@ -5,7 +5,7 @@ verdade e ficam em .ai/docs/ ou, para arquitetura, em .ai/architecture.md.
 
 | Documento | Categoria | Arquivo | Estado | Atualizado em |
 |---|---|---|---|---|
-| System Description | System Description | .ai/docs/system-description.md | A entrevistar | — |
+| System Description | System Description | .ai/docs/system-description.md | Em revisão | 2026-10-07 |
 | SRS | SRS | .ai/docs/SRS.md | A entrevistar | — |
 | Use Cases | Use Cases | .ai/docs/use-cases.md | A entrevistar | — |
 | Data Model | Data Model | .ai/docs/data-model.md | A entrevistar | — |
