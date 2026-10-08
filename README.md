@@ -123,3 +123,30 @@ o arquivo de extração registra um alerta para a página em vez de transformar 
 
 Prefira `--llm ollama` para manter os PDFs e seus dados pessoais processados localmente. Ao usar
 `--llm anthropic`, o texto extraído — incluindo eventuais CPF/CNPJ — é enviado à API escolhida.
+
+## Worker PostgreSQL
+
+O modo `--banco` transforma a aplicação em um worker: busca uma linha `pendente`
+em `cadastro.midia_processamento_pdf`, baixa o PDF de `cadastro.midia.link`, processa
+localmente e atualiza as duas tabelas. A URL de conexão não é versionada; defina-a
+na sessão do PowerShell antes de executar:
+
+```powershell
+$env:OCR_PDF_DATABASE_URL = 'postgresql://USUARIO:SENHA@HOST:5432/BANCO'
+.venv\Scripts\python run.py --banco --lote 1 --llm ollama --modelo qwen2.5:7b --analise-imovel
+```
+
+Use `--monitorar 30` para manter o worker ativo, verificando a fila a cada 30 segundos.
+O worker usa OCR em 600 DPI, reserva trabalho com segurança para permitir múltiplas
+instâncias e reaproveita resultados de PDFs idênticos por SHA-256 e versão de pipeline.
+
+Antes de instalar uma LLM, é possível validar somente o OCR em uma mídia de teste,
+sem escolher a primeira pendência da fila:
+
+```powershell
+.venv\Scripts\python run.py --banco --id-midia 123 --versao-pipeline ocr-only-v1
+```
+
+Esse teste grava o Markdown OCR, hash, métricas e status da mídia; não produz resumo
+nem extração imobiliária. Use um registro de teste e uma versão de pipeline diferente
+da futura execução completa com LLM.

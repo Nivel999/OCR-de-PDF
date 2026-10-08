@@ -7,17 +7,75 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sys
+import tempfile
 import time
+import urllib.request
 from dataclasses import replace
 from pathlib import Path
 
 from .analise_imovel import consolidar_consistencia, extrair_dados_imovel
+from .banco import BancoProcessamentoPDF, ConfigBanco, VERSAO_PIPELINE_PADRAO, calcular_sha256
 from .config import RAIZ_PROJETO, ConfigOCR
 from .extrator import Documento, extrair_pdf, reprocessar_paginas
 from .preprocessamento import ESTRATEGIAS
 from .qualidade import avaliar_confianca_ocr
 from .resumo import criar_backend, resumir
+
+
+def _baixar_pdf(link: str, destino: Path) -> None:
+    """Baixa o PDF da URL cadastrada sem manter cópia permanente no worker."""
+    requisicao = urllib.request.Request(link, headers={"User-Agent": "ocr-pdf-worker/1.0"})
+    with urllib.request.urlopen(requisicao, timeout=300) as resposta, destino.open("wb") as arquivo:
+        shutil.copyfileobj(resposta, arquivo)
+
+
+def processar_banco(args: argparse.Namespace, cfg: ConfigOCR) -> int:
+    """Consome a fila PostgreSQL e grava o resultado nas duas tabelas cadastradas."""
+    banco = BancoProcessamentoPDF(ConfigBanco.do_ambiente(), args.worker)
+    backend = criar_backend(args.llm, args.modelo)
+    processados = 0
+
+    for _ in range(args.lote):
+        trabalho = banco.reservar_proximo(args.id_midia)
+        if trabalho is None:
+            break
+        print(f"\n> mídia {trabalho.id_midia}: {trabalho.link}")
+        try:
+            with tempfile.TemporaryDirectory(prefix="ocr-pdf-") as diretorio:
+                pdf = Path(diretorio) / "documento.pdf"
+                _baixar_pdf(trabalho.link, pdf)
+                sha256 = calcular_sha256(pdf)
+                origem_id = banco.procurar_resultado_reutilizavel(
+                    trabalho, sha256, args.versao_pipeline
+                )
+                if origem_id is not None:
+                    banco.marcar_reutilizado(trabalho, origem_id, sha256, args.versao_pipeline)
+                    print(f"  resultado reaproveitado da mídia {origem_id}")
+                    processados += 1
+                    continue
+
+                doc = extrair_pdf(pdf, cfg)
+                resumo = resumir(doc.texto, backend, args.tamanho_bloco) if backend is not None else None
+                extracao = None
+                if args.analise_imovel:
+                    extracao = extrair_dados_imovel(
+                        trabalho.nome or f"midia-{trabalho.id_midia}.pdf",
+                        ((pagina.numero, pagina.texto) for pagina in doc.paginas),
+                        backend,
+                    )
+                metricas = doc.resumo_metricas()
+                banco.concluir(
+                    trabalho, sha256, args.versao_pipeline, doc.texto, extracao, resumo,
+                    metricas["confianca_media_ocr"],
+                )
+                print("  processamento concluído")
+                processados += 1
+        except Exception as erro:
+            banco.falhar(trabalho, erro)
+            print(f"  ERRO: {erro}")
+    return processados
 
 
 def ja_processado(pdf: Path, saida_txt: Path) -> bool:
@@ -184,14 +242,44 @@ def main(argv: list[str] | None = None) -> None:
                     help="máx. de caracteres por chamada à LLM (textos maiores são divididos)")
     ap.add_argument("--monitorar", type=int, metavar="SEGUNDOS",
                     help="fica vigiando a pasta de entrada, verificando a cada N segundos")
+    ap.add_argument("--banco", action="store_true",
+                    help="consome cadastro.midia_processamento_pdf em vez de usar entrada/ e saida/")
+    ap.add_argument("--lote", type=int, default=1,
+                    help="quantidade máxima de PDFs da fila a processar por execução (padrão: 1)")
+    ap.add_argument("--id-midia", type=int,
+                    help="processa somente este id_midia pendente; recomendado para testes")
+    ap.add_argument("--worker", help="identificação deste worker no banco (padrão: nome do computador)")
+    ap.add_argument("--versao-pipeline", default=VERSAO_PIPELINE_PADRAO,
+                    help="versão usada para decidir se um PDF idêntico pode ser reaproveitado")
     args = ap.parse_args(argv)
     if args.analise_imovel and args.llm == "nenhum":
         ap.error("--analise-imovel exige selecionar uma LLM com --llm ollama ou --llm anthropic")
+    if args.lote < 1:
+        ap.error("--lote deve ser maior ou igual a 1")
 
-    cfg = ConfigOCR(idioma=args.idioma, dpi=args.dpi, estrategia=args.estrategia, psm=args.psm,
+    cfg = ConfigOCR(idioma=args.idioma, dpi=600 if args.banco else args.dpi, estrategia=args.estrategia, psm=args.psm,
                     forcar_ocr=args.forcar_ocr, debug_imagens=args.debug_imagens)
     if args.workers:
         cfg.workers = args.workers
+
+    if args.banco:
+        if not args.monitorar:
+            try:
+                n = processar_banco(args, cfg)
+            except RuntimeError as erro:
+                ap.error(str(erro))
+            print(f"\n{n} PDF(s) processado(s) pelo banco.")
+            return
+        print(f"Monitorando a fila do banco a cada {args.monitorar}s (Ctrl+C para sair)...")
+        try:
+            while True:
+                try:
+                    processar_banco(args, cfg)
+                except RuntimeError as erro:
+                    ap.error(str(erro))
+                time.sleep(args.monitorar)
+        except KeyboardInterrupt:
+            sys.exit(0)
 
     if not args.monitorar:
         n = processar_pasta(args, cfg)

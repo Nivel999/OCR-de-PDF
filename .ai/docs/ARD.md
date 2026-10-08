@@ -59,3 +59,21 @@ Antes de processar, o serviço calculará SHA-256 sobre os bytes originais do PD
 ## Open Decisions
 
 1. {{unresolved decision}}
+
+---
+
+## ARD-02 — Fila de processamento de PDF separada da mídia
+
+**Decisão:** manter os registros e os campos de consulta em `cadastro.midia` e
+usar `cadastro.midia_processamento_pdf` para orquestrar o processamento. A tabela
+de processamento possui uma linha por mídia, status, tentativas, reserva do worker,
+erro, SHA-256, versão do pipeline, Markdown OCR, extração JSON e referência à
+origem quando o resultado for reutilizado.
+
+**Racional:** `midia` já contém dados de produção e é a tabela que os funcionários
+consultam. Separar estado operacional e artefatos grandes evita sobrecarregá-la e
+permite reserva atômica de trabalho sem perder resultados consultáveis no registro
+de mídia.
+
+**Consequência:** o worker deve atualizar as duas tabelas na mesma transação e não
+deve processar simultaneamente a mesma linha da fila.

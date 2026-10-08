@@ -82,3 +82,23 @@
 <!-- Track unresolved decisions so they aren't silently invented. -->
 
 1. {{question}}
+
+---
+
+## Decisão atual — processamento via PostgreSQL
+
+Esta seção substitui as menções anteriores a uma única tabela. O worker Python é
+uma aplicação local e contínua: busca a fila em PostgreSQL, baixa o PDF indicado
+por `cadastro.midia.link`, executa OCR e LLM localmente e grava o resultado no
+mesmo banco. As pastas `entrada/` e `saida/` não fazem parte do fluxo operacional.
+
+| Tabela | Responsabilidade |
+|---|---|
+| `cadastro.midia` | Registro de mídia de origem, URL do PDF e campos consultáveis extraídos do documento. |
+| `cadastro.midia_processamento_pdf` | Fila, reserva atômica, tentativas, hash SHA-256, artefatos completos e rastreabilidade do processamento. |
+
+O worker reserva apenas linhas `pendente` com `FOR UPDATE SKIP LOCKED`. Depois de
+baixar o arquivo, compara o SHA-256 e a versão do pipeline com resultados já
+concluídos; em caso de igualdade, copia o resultado para a nova mídia e marca a
+fila como `reutilizado`. Após a primeira falha, a linha retorna a `pendente`; após
+a segunda, fica em `falha` com a mensagem de erro.

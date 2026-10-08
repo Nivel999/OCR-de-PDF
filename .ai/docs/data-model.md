@@ -87,3 +87,22 @@
 | # | Question | Owner | Status |
 |---|---|---|---|
 | 1 | {{unresolved data question}} | {{who}} | Open |
+
+---
+
+## Modelo implementado para o worker PostgreSQL
+
+### `cadastro.midia`
+
+Tabela já existente, identificada por `id`. É a origem de `link` e recebe os
+campos publicados: `nome_proprietario`, `cpf_cnpj`, `nome_propriedade`,
+`classificacao_dominio`, `matricula_imovel`, `codigo_incra_sncr`,
+`confianca_media`, `resumo` e `data_transformacao`.
+
+### `cadastro.midia_processamento_pdf`
+
+Uma linha por `id_midia` (FK para `midia.id`). Controla `status`, `tentativas`,
+`reservado_em`, `worker`, `erro`, `pdf_sha256`, `link_processado`,
+`resultado_origem_id`, `ocr_markdown`, `extracao_json`, `versao_pipeline` e os
+timestamps de criação, atualização e conclusão. Os status permitidos são
+`pendente`, `processando`, `concluido`, `reutilizado`, `falha` e `ignorado`.
