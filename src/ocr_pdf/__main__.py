@@ -16,7 +16,10 @@ from dataclasses import replace
 from pathlib import Path
 
 from .analise_imovel import consolidar_consistencia, extrair_dados_imovel
-from .banco import BancoProcessamentoPDF, ConfigBanco, VERSAO_PIPELINE_PADRAO, calcular_sha256
+from .banco import (
+    TIPOS_DOCUMENTO_OCR, BancoProcessamentoPDF, ConfigBanco, calcular_sha256, descrever_confianca,
+    montar_referencia,
+)
 from .config import RAIZ_PROJETO, ConfigOCR
 from .extrator import Documento, extrair_pdf, reprocessar_paginas
 from .preprocessamento import ESTRATEGIAS
@@ -32,13 +35,13 @@ def _baixar_pdf(link: str, destino: Path) -> None:
 
 
 def processar_banco(args: argparse.Namespace, cfg: ConfigOCR) -> int:
-    """Consome a fila PostgreSQL e grava o resultado nas duas tabelas cadastradas."""
-    banco = BancoProcessamentoPDF(ConfigBanco.do_ambiente(), args.worker)
+    """Processa as mídias com ``an5_status = 'pendente'`` e grava o resultado em ``cadastro.midia``."""
+    banco = BancoProcessamentoPDF(ConfigBanco.do_ambiente())
     backend = criar_backend(args.llm, args.modelo)
     processados = 0
 
     for _ in range(args.lote):
-        trabalho = banco.reservar_proximo(args.id_midia)
+        trabalho = banco.reservar_proximo(args.id_midia, args.tipo_documento)
         if trabalho is None:
             break
         print(f"\n> mídia {trabalho.id_midia}: {trabalho.link}")
@@ -47,11 +50,9 @@ def processar_banco(args: argparse.Namespace, cfg: ConfigOCR) -> int:
                 pdf = Path(diretorio) / "documento.pdf"
                 _baixar_pdf(trabalho.link, pdf)
                 sha256 = calcular_sha256(pdf)
-                origem_id = banco.procurar_resultado_reutilizavel(
-                    trabalho, sha256, args.versao_pipeline
-                )
+                origem_id = banco.procurar_resultado_reutilizavel(trabalho, sha256)
                 if origem_id is not None:
-                    banco.marcar_reutilizado(trabalho, origem_id, sha256, args.versao_pipeline)
+                    banco.marcar_reutilizado(trabalho, origem_id, sha256)
                     print(f"  resultado reaproveitado da mídia {origem_id}")
                     processados += 1
                     continue
@@ -67,8 +68,8 @@ def processar_banco(args: argparse.Namespace, cfg: ConfigOCR) -> int:
                     )
                 metricas = doc.resumo_metricas()
                 banco.concluir(
-                    trabalho, sha256, args.versao_pipeline, doc.texto, extracao, resumo,
-                    metricas["confianca_media_ocr"],
+                    trabalho, sha256, extracao, montar_referencia(extracao, resumo),
+                    metricas["confianca_media_ocr"], descrever_confianca(metricas),
                 )
                 print("  processamento concluído")
                 processados += 1
@@ -243,14 +244,14 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--monitorar", type=int, metavar="SEGUNDOS",
                     help="fica vigiando a pasta de entrada, verificando a cada N segundos")
     ap.add_argument("--banco", action="store_true",
-                    help="consome cadastro.midia_processamento_pdf em vez de usar entrada/ e saida/")
+                    help="processa mídias com an5_status='pendente' em cadastro.midia em vez de usar entrada/ e saida/")
     ap.add_argument("--lote", type=int, default=1,
                     help="quantidade máxima de PDFs da fila a processar por execução (padrão: 1)")
     ap.add_argument("--id-midia", type=int,
                     help="processa somente este id_midia pendente; recomendado para testes")
-    ap.add_argument("--worker", help="identificação deste worker no banco (padrão: nome do computador)")
-    ap.add_argument("--versao-pipeline", default=VERSAO_PIPELINE_PADRAO,
-                    help="versão usada para decidir se um PDF idêntico pode ser reaproveitado")
+    ap.add_argument("--tipo-documento", type=int, action="append",
+                    help=f"tipo_documento aceito pelo worker; repita para vários "
+                         f"(padrão: {', '.join(map(str, TIPOS_DOCUMENTO_OCR))} = INCRA e matrícula)")
     args = ap.parse_args(argv)
     if args.analise_imovel and args.llm == "nenhum":
         ap.error("--analise-imovel exige selecionar uma LLM com --llm ollama ou --llm anthropic")

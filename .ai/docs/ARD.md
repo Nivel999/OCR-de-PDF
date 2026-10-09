@@ -62,7 +62,18 @@ Antes de processar, o serviço calculará SHA-256 sobre os bytes originais do PD
 
 ---
 
-## ARD-02 — Fila de processamento de PDF separada da mídia
+## ARD-03 — Resultados apenas em `cadastro.midia` (substitui ARD-02)
+
+**Decisão (2026-10-09):** abandonar `cadastro.midia_processamento_pdf`. Estado e
+resultado do processamento ficam em colunas `an5_*` de `cadastro.midia`.
+
+**Consequências:** há contador `an5_tentativas` (falha definitiva na 2ª), mas não há identificação do worker, versão
+do pipeline, texto OCR completo nem JSON da extração no banco. A deduplicação usa
+apenas `an5_pdf_sha256`.
+
+---
+
+## ARD-02 — Fila de processamento de PDF separada da mídia (substituído pelo ARD-03)
 
 **Decisão:** manter os registros e os campos de consulta em `cadastro.midia` e
 usar `cadastro.midia_processamento_pdf` para orquestrar o processamento. A tabela

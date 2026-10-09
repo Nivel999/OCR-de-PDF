@@ -15,6 +15,7 @@ CAMPOS_PRIORITARIOS = (
     "classificacao_dominio",
     "matricula_imovel",
     "codigo_incra_sncr",
+    "area_total_imovel",
 )
 
 PROMPT_SISTEMA = """Você extrai dados de documentos imobiliários brasileiros.
@@ -30,15 +31,18 @@ PROMPT_EXTRACAO = """Analise a página {pagina} do arquivo `{arquivo}` e devolva
     "nome_propriedade": [{{"valor": "", "evidencia": ""}}],
     "classificacao_dominio": [{{"valor": "", "evidencia": ""}}],
     "matricula_imovel": [{{"valor": "", "evidencia": ""}}],
-    "codigo_incra_sncr": [{{"valor": "", "evidencia": ""}}]
+    "codigo_incra_sncr": [{{"valor": "", "evidencia": ""}}],
+    "area_total_imovel": [{{"valor": "", "evidencia": ""}}]
   }},
   "demais_atributos_relevantes": [{{"nome": "", "valor": "", "evidencia": ""}}]
 }}
 
 Em `demais_atributos_relevantes`, registre somente atributos relevantes que estejam explícitos, como
-área, município/UF, CAR, CCIR, NIRF, ITR, cartório, confrontações, ônus, restrições ou fração ideal.
+município/UF, CAR, CCIR, NIRF, ITR, cartório, confrontações, ônus, restrições ou fração ideal.
 O campo `classificacao_dominio` deve trazer a classificação literal encontrada (por exemplo, particular,
-privado ou público); não tente classificá-la se o documento não a disser.
+privado ou público); não tente classificá-la se o documento não a disser. Em `area_total_imovel`,
+copie a linha da área total exatamente como escrita, com rótulo, sistema de referência e unidade
+(ex.: "Área (Sistema Geodésico Local): 35,2723 ha").
 
 <pagina>
 {texto}

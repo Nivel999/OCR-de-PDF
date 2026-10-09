@@ -94,15 +94,20 @@
 
 ### `cadastro.midia`
 
-Tabela já existente, identificada por `id`. É a origem de `link` e recebe os
-campos publicados: `nome_proprietario`, `cpf_cnpj`, `nome_propriedade`,
-`classificacao_dominio`, `matricula_imovel`, `codigo_incra_sncr`,
-`confianca_media`, `resumo` e `data_transformacao`.
+Tabela já existente, identificada por `id`; `link` é a URL do PDF. O processamento
+grava apenas colunas novas com prefixo `an5_` (DDL em `sql/001_processamento_pdf.sql`):
 
-### `cadastro.midia_processamento_pdf`
+| Coluna | Tipo | Conteúdo |
+|---|---|---|
+| `an5_matricula` | text | Matrícula do imóvel extraída |
+| `an5_nome_imovel` | text | Nome do imóvel extraído |
+| `an5_area_total_imovel` | text | Área total exatamente como escrita (rótulo, sistema de referência e unidade) |
+| `an5_confianca_media` | numeric(5,2) | Confiança média do OCR (0–100) |
+| `an5_descricao` | text | Descrição do resultado da confiança, ou o erro |
+| `an5_referencia` | text | Resumo dos dados trazidos pelo OCR/INCRA e pela LLM |
+| `an5_status` | varchar(20) | `pendente`, `processando`, `concluido`, `reutilizado`, `falha` |
+| `an5_tentativas` | int2, default 0 | Vezes que o processamento foi iniciado |
+| `an5_data_transformacao` | timestamp | Data/hora do último processamento |
+| `an5_pdf_sha256` | bpchar(64) | Hash SHA-256 do PDF (deduplicação) |
 
-Uma linha por `id_midia` (FK para `midia.id`). Controla `status`, `tentativas`,
-`reservado_em`, `worker`, `erro`, `pdf_sha256`, `link_processado`,
-`resultado_origem_id`, `ocr_markdown`, `extracao_json`, `versao_pipeline` e os
-timestamps de criação, atualização e conclusão. Os status permitidos são
-`pendente`, `processando`, `concluido`, `reutilizado`, `falha` e `ignorado`.
+A tabela `cadastro.midia_processamento_pdf` não é mais usada (ver ARD-03).

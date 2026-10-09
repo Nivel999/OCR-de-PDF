@@ -92,13 +92,22 @@ uma aplicação local e contínua: busca a fila em PostgreSQL, baixa o PDF indic
 por `cadastro.midia.link`, executa OCR e LLM localmente e grava o resultado no
 mesmo banco. As pastas `entrada/` e `saida/` não fazem parte do fluxo operacional.
 
-| Tabela | Responsabilidade |
-|---|---|
-| `cadastro.midia` | Registro de mídia de origem, URL do PDF e campos consultáveis extraídos do documento. |
-| `cadastro.midia_processamento_pdf` | Fila, reserva atômica, tentativas, hash SHA-256, artefatos completos e rastreabilidade do processamento. |
+Tudo fica em `cadastro.midia` (decisão de 2026-10-09; a antiga tabela
+`cadastro.midia_processamento_pdf` foi abandonada). O estado e o resultado do
+processamento usam colunas com prefixo `an5_`: `an5_matricula`, `an5_nome_imovel`,
+`an5_area_total_imovel`, `an5_confianca_media`, `an5_descricao`, `an5_referencia`,
+`an5_status`, `an5_tentativas`, `an5_data_transformacao` e `an5_pdf_sha256` (DDL em
+`sql/001_processamento_pdf.sql`).
 
-O worker reserva apenas linhas `pendente` com `FOR UPDATE SKIP LOCKED`. Depois de
-baixar o arquivo, compara o SHA-256 e a versão do pipeline com resultados já
-concluídos; em caso de igualdade, copia o resultado para a nova mídia e marca a
-fila como `reutilizado`. Após a primeira falha, a linha retorna a `pendente`; após
-a segunda, fica em `falha` com a mensagem de erro.
+Os PDFs são separados por `cadastro.midia.tipo_documento` (FK `dominio.tipo_documento`):
+12 = Memorial Descritivo do INCRA e 13 = Matrícula passam pelo mesmo pipeline (texto
+nativo quando houver, OCR nas páginas escaneadas). Um script próprio para o INCRA pode
+vir depois. O enfileiramento (`sql/002_enfileirar_documentos.sql`) marca os dois tipos,
+e o worker também filtra por `tipo_documento` (`--tipo-documento`, padrão 12 e 13).
+
+O worker reserva apenas mídias com `an5_status = 'pendente'` usando
+`FOR UPDATE SKIP LOCKED`. Depois de baixar o arquivo, compara o SHA-256 com mídias
+já concluídas; em caso de igualdade, copia o resultado e marca `reutilizado`. Cada
+reserva incrementa `an5_tentativas`; após o primeiro erro a mídia volta a
+`pendente`, após o segundo fica em `falha`, com a mensagem em `an5_descricao`.
+O texto completo do OCR e o JSON da extração não são persistidos.

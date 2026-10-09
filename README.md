@@ -126,27 +126,48 @@ Prefira `--llm ollama` para manter os PDFs e seus dados pessoais processados loc
 
 ## Worker PostgreSQL
 
-O modo `--banco` transforma a aplicação em um worker: busca uma linha `pendente`
-em `cadastro.midia_processamento_pdf`, baixa o PDF de `cadastro.midia.link`, processa
-localmente e atualiza as duas tabelas. A URL de conexão não é versionada; defina-a
-na sessão do PowerShell antes de executar:
+O modo `--banco` transforma a aplicação em um worker: busca em `cadastro.midia` uma
+mídia com `an5_status = 'pendente'`, baixa o PDF de `link`, processa localmente e grava
+o resultado nas colunas `an5_*` da própria `cadastro.midia`. Crie as colunas com
+`sql/001_processamento_pdf.sql` (idempotente, não apaga dados). A URL de conexão não é
+versionada; defina-a na sessão do PowerShell antes de executar:
 
 ```powershell
 $env:OCR_PDF_DATABASE_URL = 'postgresql://USUARIO:SENHA@HOST:5432/BANCO'
 .venv\Scripts\python run.py --banco --lote 1 --llm ollama --modelo qwen2.5:7b --analise-imovel
 ```
 
-Use `--monitorar 30` para manter o worker ativo, verificando a fila a cada 30 segundos.
-O worker usa OCR em 600 DPI, reserva trabalho com segurança para permitir múltiplas
-instâncias e reaproveita resultados de PDFs idênticos por SHA-256 e versão de pipeline.
+Só entram no processamento as mídias marcadas explicitamente como `pendente`.
+O tipo do documento vem de `cadastro.midia.tipo_documento` (domínio
+`dominio.tipo_documento`): **12 = Memorial Descritivo do INCRA** e **13 = Matrícula**
+passam pelo pipeline (páginas com texto nativo são lidas direto, as escaneadas vão para
+OCR). `sql/002_enfileirar_documentos.sql` mostra quantas mídias de cada tipo existem e
+as enfileira. O worker só aceita os tipos de `--tipo-documento` (padrão 12 e 13), mesmo
+que outra mídia esteja pendente.
 
-Antes de instalar uma LLM, é possível validar somente o OCR em uma mídia de teste,
-sem escolher a primeira pendência da fila:
+| Coluna | Conteúdo |
+|---|---|
+| `an5_matricula`, `an5_nome_imovel` | Primeiro valor extraído pela LLM (`--analise-imovel`). |
+| `an5_area_total_imovel` | Área total exatamente como escrita, ex.: `Área (Sistema Geodésico Local): 35,2723 ha`. |
+| `an5_confianca_media` | Confiança média do OCR (0–100); vazio se o PDF só tem texto nativo. |
+| `an5_descricao` | Explicação da confiança (faixas, páginas para revisão) ou a mensagem de erro. |
+| `an5_referencia` | Todos os valores extraídos, com a página de origem, e o resumo da LLM. |
+| `an5_status` | `pendente`, `processando`, `concluido`, `reutilizado` ou `falha`. |
+| `an5_tentativas` | Quantas vezes o processamento foi iniciado. |
+| `an5_data_transformacao` | Data/hora do último processamento. |
+| `an5_pdf_sha256` | Hash do PDF; um PDF idêntico já concluído tem o resultado copiado (`reutilizado`). |
+
+Use `--monitorar 30` para manter o worker ativo, verificando a cada 30 segundos.
+O worker usa OCR em 600 DPI e reserva trabalho com segurança para permitir múltiplas
+instâncias. Após o primeiro erro a mídia volta para `pendente`; no segundo fica em
+`falha`. Para tentar de novo, volte `an5_status` para `pendente` e `an5_tentativas` para 0. Se o worker for interrompido no meio, a mídia fica em `processando` e
+também precisa voltar para `pendente` manualmente.
+
+Antes de instalar uma LLM, é possível validar somente o OCR em uma mídia de teste:
 
 ```powershell
-.venv\Scripts\python run.py --banco --id-midia 123 --versao-pipeline ocr-only-v1
+.venv\Scripts\python run.py --banco --id-midia 123
 ```
 
-Esse teste grava o Markdown OCR, hash, métricas e status da mídia; não produz resumo
-nem extração imobiliária. Use um registro de teste e uma versão de pipeline diferente
-da futura execução completa com LLM.
+Sem LLM, só são gravados confiança, descrição, hash, status e data; os campos do
+imóvel ficam vazios.
