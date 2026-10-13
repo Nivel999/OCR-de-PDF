@@ -46,8 +46,8 @@ Os modelos de idioma ficam em `tessdata/` (`por` e `osd`; para outros idiomas, b
 .venv\Scripts\python run.py --estrategia marca_dagua --reprocessar
 .venv\Scripts\python run.py --forcar-ocr            # ignora texto nativo (ex.: camada OCR antiga ruim)
 .venv\Scripts\python run.py --monitorar 30          # vigia a pasta a cada 30s
-.venv\Scripts\python run.py --llm ollama --modelo qwen2.5:7b   # gera resumos com LLM local
-.venv\Scripts\python run.py --llm ollama --modelo qwen2.5:7b --analise-imovel  # análise imobiliária
+.venv\Scripts\python run.py --llm ollama --modelo qwen3:8b   # gera resumos com LLM local
+.venv\Scripts\python run.py --llm ollama --modelo qwen3:8b --analise-imovel  # análise imobiliária
 ```
 
 PDFs já processados são pulados (a menos que o PDF mude ou se use `--reprocessar`).
@@ -84,7 +84,7 @@ automaticamente; as recomendações continuam no JSON.
 
 ## Resumos com LLM (`--llm`)
 
-- `ollama` — LLM local (alvo do projeto). Instale o [Ollama](https://ollama.com), `ollama pull qwen2.5:7b`.
+- `ollama` — LLM local (alvo do projeto). Instale o [Ollama](https://ollama.com), `ollama pull qwen3:8b`.
   Textos maiores que `--tamanho-bloco` (padrão 12000 caracteres) são resumidos em partes e depois combinados,
   para caber no contexto de modelos 7B.
 - `anthropic` — Claude via API, para comparar qualidade (`pip install anthropic` e `ANTHROPIC_API_KEY`).
@@ -154,7 +154,7 @@ versionada; defina-a na sessão do PowerShell antes de executar:
 
 ```powershell
 $env:OCR_PDF_DATABASE_URL = 'postgresql://USUARIO:SENHA@HOST:5432/BANCO'
-.venv\Scripts\python run.py --banco --lote 1 --llm ollama --modelo qwen2.5:7b --analise-imovel
+.venv\Scripts\python run.py --banco --lote 1 --llm ollama --modelo qwen3:8b --analise-imovel
 ```
 
 Só entram no processamento as mídias marcadas explicitamente como `pendente`.

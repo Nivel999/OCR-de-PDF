@@ -290,7 +290,7 @@ def main(argv: list[str] | None = None) -> None:
                     help="backend para gerar resumos")
     ap.add_argument("--analise-imovel", action="store_true",
                     help="extrai dados imobiliários estruturados e compara consistência entre PDFs (exige --llm)")
-    ap.add_argument("--modelo", help="modelo da LLM (ex.: qwen2.5:7b no Ollama)")
+    ap.add_argument("--modelo", help="modelo da LLM (padrão no Ollama: qwen3:8b)")
     ap.add_argument("--contexto", type=int, default=16384,
                     help="janela de contexto do Ollama em tokens; o documento inteiro precisa caber (padrão: 16384)")
     ap.add_argument("--tamanho-bloco", type=int, default=12000,
