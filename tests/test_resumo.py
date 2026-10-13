@@ -17,6 +17,17 @@ def _resposta(conteudo: str):
     return resposta
 
 
+class TestGerarResumo(unittest.TestCase):
+    def test_resumo_so_com_flag_no_modo_analise(self):
+        from argparse import Namespace
+        from ocr_pdf.__main__ import _gerar_resumo
+
+        self.assertTrue(_gerar_resumo(Namespace(analise_imovel=False, com_resumo=False), object()))
+        self.assertFalse(_gerar_resumo(Namespace(analise_imovel=True, com_resumo=False), object()))
+        self.assertTrue(_gerar_resumo(Namespace(analise_imovel=True, com_resumo=True), object()))
+        self.assertFalse(_gerar_resumo(Namespace(analise_imovel=False, com_resumo=False), None))
+
+
 class TestBackendOllama(unittest.TestCase):
     def test_desliga_raciocinio_e_remove_bloco_think(self):
         with mock.patch("urllib.request.urlopen", return_value=_resposta("<think>hmm</think>\n{\"a\": 1}")) as urlopen:
@@ -28,6 +39,12 @@ class TestBackendOllama(unittest.TestCase):
         self.assertEqual(requisicao.full_url, "http://ollama:11434/api/chat")
         self.assertIs(corpo["think"], False)
         self.assertEqual(corpo["options"]["num_ctx"], 16384)
+        self.assertNotIn("format", corpo)
+
+    def test_formato_json_pede_saida_json_ao_ollama(self):
+        with mock.patch("urllib.request.urlopen", return_value=_resposta("{}")) as urlopen:
+            BackendOllama("qwen3:8b").gerar("s", "m", formato_json=True)
+        self.assertEqual(json.loads(urlopen.call_args.args[0].data)["format"], "json")
 
     def test_sem_opcao_de_raciocinio_quando_none(self):
         with mock.patch("urllib.request.urlopen", return_value=_resposta("ok")) as urlopen:

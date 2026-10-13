@@ -18,7 +18,8 @@ class BackendFalso:
         self.observacoes = observacoes
         self.documentos: list[str] = []
 
-    def gerar(self, sistema: str, mensagem: str) -> str:
+    def gerar(self, sistema: str, mensagem: str, formato_json: bool = False) -> str:
+        assert formato_json, "a extração deve pedir JSON forçado"
         if "PROPRIETÁRIOS ATUAIS" in mensagem:
             self.documentos.append(mensagem)
             return json.dumps(
@@ -114,8 +115,10 @@ class TestAnaliseImovel(unittest.TestCase):
 
     def test_resposta_invalida_dos_proprietarios_atuais_gera_alerta(self):
         class BackendQuebrado(BackendFalso):
-            def gerar(self, sistema, mensagem):
-                return "não sei" if "PROPRIETÁRIOS ATUAIS" in mensagem else super().gerar(sistema, mensagem)
+            def gerar(self, sistema, mensagem, formato_json=False):
+                if "PROPRIETÁRIOS ATUAIS" in mensagem:
+                    return "não sei"
+                return super().gerar(sistema, mensagem, formato_json)
 
         atuais, observacoes, alertas = identificar_proprietarios_atuais("m.pdf", [(1, "texto")], BackendQuebrado())
         self.assertEqual((atuais, observacoes), ([], ""))

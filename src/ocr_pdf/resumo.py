@@ -39,7 +39,7 @@ PROMPT_FINAL = (
 
 
 class Backend(Protocol):
-    def gerar(self, sistema: str, mensagem: str) -> str: ...
+    def gerar(self, sistema: str, mensagem: str, formato_json: bool = False) -> str: ...
 
 
 MODELO_OLLAMA_PADRAO = "qwen3:8b"
@@ -54,7 +54,7 @@ class BackendOllama:
         # tempo e atrapalha o JSON. False desliga; None não envia a opção (modelos sem raciocínio).
         self.pensar = pensar
 
-    def gerar(self, sistema: str, mensagem: str) -> str:
+    def gerar(self, sistema: str, mensagem: str, formato_json: bool = False) -> str:
         corpo = {
             "model": self.modelo,
             "stream": False,
@@ -66,6 +66,8 @@ class BackendOllama:
         }
         if self.pensar is not None:
             corpo["think"] = self.pensar
+        if formato_json:
+            corpo["format"] = "json"  # o Ollama restringe a saída a JSON válido
         req = urllib.request.Request(
             f"{self.url}/api/chat",
             data=json.dumps(corpo).encode("utf-8"),
@@ -83,7 +85,8 @@ class BackendAnthropic:
         self.cliente = anthropic.Anthropic()
         self.modelo = modelo
 
-    def gerar(self, sistema: str, mensagem: str) -> str:
+    def gerar(self, sistema: str, mensagem: str, formato_json: bool = False) -> str:
+        # formato_json é ignorado: o prompt já pede JSON e o parser tolera texto em volta.
         resposta = self.cliente.beta.messages.create(
             model=self.modelo,
             max_tokens=16000,

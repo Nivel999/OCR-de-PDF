@@ -111,7 +111,7 @@ Regras:
 
 
 class Backend(Protocol):
-    def gerar(self, sistema: str, mensagem: str) -> str: ...
+    def gerar(self, sistema: str, mensagem: str, formato_json: bool = False) -> str: ...
 
 
 def _objeto_json(resposta: str) -> dict[str, Any]:
@@ -222,7 +222,9 @@ def identificar_proprietarios_atuais(
         return [], "", []
     try:
         resultado = _objeto_json(
-            backend.gerar(PROMPT_SISTEMA, PROMPT_PROPRIETARIOS.format(arquivo=arquivo, texto=texto))
+            backend.gerar(
+                PROMPT_SISTEMA, PROMPT_PROPRIETARIOS.format(arquivo=arquivo, texto=texto), formato_json=True
+            )
         )
     except (ValueError, json.JSONDecodeError) as erro:
         return [], "", [f"Proprietários atuais: resposta estruturada inválida da LLM ({erro})."]
@@ -271,6 +273,7 @@ def extrair_dados_imovel(
             resposta = backend.gerar(
                 PROMPT_SISTEMA,
                 PROMPT_EXTRACAO.format(arquivo=arquivo, pagina=pagina, texto=texto),
+                formato_json=True,
             )
             resultado = _objeto_json(resposta)
         except (ValueError, json.JSONDecodeError) as erro:

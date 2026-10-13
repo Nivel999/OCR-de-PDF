@@ -119,6 +119,10 @@ com o ato de aquisição e a fração em `descricao_papel`. As observações sob
 ninguém, saem dos citados como proprietário. Como o documento inteiro precisa caber na janela da
 LLM, o Ollama usa 16384 tokens por padrão (`--contexto` muda esse valor).
 
+No Ollama, as chamadas da análise pedem saída em JSON (`format: json`), o que impede respostas
+com JSON quebrado. Com `--analise-imovel`, o resumo em Markdown não é gerado, a menos que se use
+`--com-resumo`: na CPU ele custava cerca de 25% do tempo da LLM e não é gravado no banco.
+
 Cada valor salvo tem `arquivo`, `pagina` e um trecho de `evidencia`; o arquivo e a página são
 anexados pelo programa, não deduzidos pelo modelo. Ao fim do lote,
 `consistencia_imovel.json` agrupa os valores encontrados e marca cada campo como:

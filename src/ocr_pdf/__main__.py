@@ -95,7 +95,7 @@ def processar_banco(args: argparse.Namespace, cfg: ConfigOCR) -> int:
                     continue
 
                 doc = extrair_pdf(pdf, cfg)
-                resumo = resumir(doc.texto, backend, args.tamanho_bloco) if backend is not None else None
+                resumo = resumir(doc.texto, backend, args.tamanho_bloco) if _gerar_resumo(args, backend) else None
                 extracao = None
                 if args.analise_imovel:
                     extracao = extrair_dados_imovel(
@@ -129,6 +129,11 @@ def processar_banco(args: argparse.Namespace, cfg: ConfigOCR) -> int:
                 {"id_midia": trabalho.id_midia, "link": trabalho.link, "erro": str(erro)},
             )
     return processados
+
+
+def _gerar_resumo(args: argparse.Namespace, backend: object) -> bool:
+    """Com --analise-imovel o resumo em Markdown só sai com --com-resumo (custa ~25% do tempo da LLM)."""
+    return backend is not None and (not args.analise_imovel or args.com_resumo)
 
 
 def ja_processado(pdf: Path, saida_txt: Path) -> bool:
@@ -241,7 +246,7 @@ def processar_pasta(args: argparse.Namespace, cfg: ConfigOCR) -> int:
         )
         m = doc.resumo_metricas()
         print(f"  total: {m['paginas']} págs ({m['paginas_ocr']} OCR), {m['segundos']}s -> {txt}")
-        if backend is not None:
+        if _gerar_resumo(args, backend):
             pastas["resumos"].mkdir(parents=True, exist_ok=True)
             try:
                 resumo = resumir(doc.texto, backend, args.tamanho_bloco)
@@ -290,6 +295,8 @@ def main(argv: list[str] | None = None) -> None:
                     help="backend para gerar resumos")
     ap.add_argument("--analise-imovel", action="store_true",
                     help="extrai dados imobiliários estruturados e compara consistência entre PDFs (exige --llm)")
+    ap.add_argument("--com-resumo", action="store_true",
+                    help="com --analise-imovel, também gera o resumo em Markdown (desligado por padrão)")
     ap.add_argument("--modelo", help="modelo da LLM (padrão no Ollama: qwen3:8b)")
     ap.add_argument("--contexto", type=int, default=16384,
                     help="janela de contexto do Ollama em tokens; o documento inteiro precisa caber (padrão: 16384)")
