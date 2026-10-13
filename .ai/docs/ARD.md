@@ -62,6 +62,23 @@ Antes de processar, o serviço calculará SHA-256 sobre os bytes originais do PD
 
 ---
 
+## ARD-04 — Todas as pessoas do documento, com papel atribuído pela LLM
+
+**Decisão (2026-10-13):** em reunião, ficou definido que o sistema usa todos os proprietários
+do documento, não apenas o principal. A LLM lista todos os nomes citados em cada página e
+classifica cada um em `proprietario`, `proprietario_anterior`, `conjuge`, `adquirente`,
+`transmitente`, `credor`, `devedor`, `procurador`, `confrontante`, `oficial_cartorio`,
+`testemunha` ou `outro` (com `descricao_papel`). A lista vai para a coluna `jsonb`
+`cadastro.midia.an5_pessoas`, com uma entrada por pessoa e por papel.
+
+**Consequências:** a mudança não cria tabela nova; a consulta por papel usa
+`jsonb_array_elements`. O papel é decidido página a página, então não há inferência de
+proprietário atual a partir da cadeia de transmissões da matrícula. A identidade de uma pessoa
+é o nome normalizado, de modo que variações de OCR no nome geram entradas separadas. O CPF dos
+proprietários do Memorial INCRA virá de uma API (a definir).
+
+---
+
 ## ARD-03 — Resultados apenas em `cadastro.midia` (substitui ARD-02)
 
 **Decisão (2026-10-09):** abandonar `cadastro.midia_processamento_pdf`. Estado e

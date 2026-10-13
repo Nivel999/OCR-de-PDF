@@ -95,13 +95,15 @@
 ### `cadastro.midia`
 
 Tabela já existente, identificada por `id`; `link` é a URL do PDF. O processamento
-grava apenas colunas novas com prefixo `an5_` (DDL em `sql/001_processamento_pdf.sql`):
+grava apenas colunas novas com prefixo `an5_` (DDL em `sql/001_processamento_pdf.sql` e
+`sql/003_an5_pessoas.sql`):
 
 | Coluna | Tipo | Conteúdo |
 |---|---|---|
 | `an5_matricula` | text | Matrícula do imóvel extraída |
 | `an5_nome_imovel` | text | Nome do imóvel extraído |
 | `an5_area_total_imovel` | text | Área total exatamente como escrita (rótulo, sistema de referência e unidade) |
+| `an5_pessoas` | jsonb | Todas as pessoas citadas, uma entrada por pessoa e papel: `nome`, `cpf_cnpj`, `papel`, `descricao_papel`, `paginas`, `evidencia` (ver ARD-04) |
 | `an5_confianca_media` | numeric(5,2) | Confiança média do OCR (0–100) |
 | `an5_descricao` | text | Descrição do resultado da confiança, ou o erro |
 | `an5_referencia` | text | Resumo dos dados trazidos pelo OCR/INCRA e pela LLM |

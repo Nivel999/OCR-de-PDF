@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from .analise_imovel import PAPEIS_PESSOA
 
 
 ARQUIVO_ENV_LOCAL = Path(__file__).resolve().parents[2] / ".env"
@@ -91,13 +94,27 @@ def _itens(extracao: dict[str, Any], campo: str) -> list[dict[str, Any]]:
     ]
 
 
+def _pessoas(extracao: dict[str, Any]) -> list[dict[str, Any]]:
+    pessoas = extracao.get("pessoas")
+    if not isinstance(pessoas, list):
+        return []
+    return [pessoa for pessoa in pessoas if isinstance(pessoa, dict) and pessoa.get("nome")]
+
+
 def campos_midia(extracao: dict[str, Any] | None) -> dict[str, str | None]:
-    """Converte a extração para as colunas ``an5_*`` de ``cadastro.midia`` (primeiro valor, como escrito)."""
+    """Converte a extração para as colunas ``an5_*`` de ``cadastro.midia`` (primeiro valor, como escrito).
+
+    ``an5_pessoas`` recebe o JSON de todas as pessoas citadas com o papel de cada uma; fica ``None``
+    (sem alterar a coluna) quando não houve extração, e ``[]`` quando a extração não achou ninguém.
+    """
     extracao = extracao or {}
     resultado = {}
     for campo, coluna in COLUNAS_EXTRACAO.items():
         itens = _itens(extracao, campo)
         resultado[coluna] = itens[0]["valor"].strip() if itens else None
+    resultado["an5_pessoas"] = (
+        json.dumps(_pessoas(extracao), ensure_ascii=False) if "pessoas" in extracao else None
+    )
     return resultado
 
 
@@ -129,6 +146,19 @@ def montar_referencia(extracao: dict[str, Any] | None, resumo: str | None) -> st
         ]
         if valores:
             linhas.append(f"{rotulo}: " + "; ".join(valores))
+    outras = []
+    for pessoa in _pessoas(extracao):
+        if pessoa.get("papel") == "proprietario":
+            continue  # já listado na linha "Proprietário"
+        papel = pessoa.get("descricao_papel") if pessoa.get("papel") == "outro" else None
+        detalhes = [papel or PAPEIS_PESSOA.get(pessoa.get("papel"), "outro")]
+        if pessoa.get("cpf_cnpj"):
+            detalhes.append(str(pessoa["cpf_cnpj"]))
+        if pessoa.get("paginas"):
+            detalhes.append("p. " + ", ".join(map(str, pessoa["paginas"])))
+        outras.append(f"{pessoa['nome']} ({', '.join(detalhes)})")
+    if outras:
+        linhas.append("Demais pessoas: " + "; ".join(outras))
     if resumo and resumo.strip():
         linhas.append(f"Resumo: {resumo.strip()}")
     return "\n".join(linhas) or None
@@ -194,6 +224,7 @@ class BancoProcessamentoPDF:
             SET an5_matricula = origem.an5_matricula,
                 an5_nome_imovel = origem.an5_nome_imovel,
                 an5_area_total_imovel = origem.an5_area_total_imovel,
+                an5_pessoas = origem.an5_pessoas,
                 an5_confianca_media = origem.an5_confianca_media,
                 an5_descricao = 'Resultado reaproveitado da mídia ' || origem.id
                     || ' (PDF idêntico). ' || COALESCE(origem.an5_descricao, ''),
@@ -215,6 +246,7 @@ class BancoProcessamentoPDF:
             SET an5_matricula = COALESCE(%(an5_matricula)s, m.an5_matricula),
                 an5_nome_imovel = COALESCE(%(an5_nome_imovel)s, m.an5_nome_imovel),
                 an5_area_total_imovel = COALESCE(%(an5_area_total_imovel)s, m.an5_area_total_imovel),
+                an5_pessoas = COALESCE(%(an5_pessoas)s::jsonb, m.an5_pessoas),
                 an5_confianca_media = %(confianca_media)s, an5_descricao = %(descricao)s,
                 an5_referencia = %(referencia)s, an5_status = 'concluido',
                 an5_pdf_sha256 = %(sha256)s, an5_data_transformacao = CURRENT_TIMESTAMP
