@@ -77,6 +77,12 @@ uma chamada extra por documento, com o texto inteiro, que devolve os proprietár
 (papel `proprietario_atual`) seguindo a cadeia de registros, e as observações de titularidade.
 Por isso a janela padrão do Ollama passou de 8192 para 16384 tokens (`--contexto`).
 
+**Atualização (2026-10-13, teste com qwen3:8b):** nos memoriais do INCRA/SIGEF, o proprietário
+atual passou a ser lido por expressão regular da linha "Proprietário(a)", sem LLM. O qwen3:8b
+alterava o nome mascarado ("XXXXXXS" → "XXXXXS") e se recusava a tratá-lo como proprietário
+atual. As chamadas da análise passaram a usar `format: json` no Ollama, e o resumo em Markdown
+ficou opcional (`--com-resumo`).
+
 **Consequências:** a mudança não cria tabela nova; a consulta por papel usa
 `jsonb_array_elements`. O papel por página continua literal; o proprietário atual depende de a
 LLM interpretar a cadeia inteira, o que exige um modelo maior que a extração por página. A identidade de uma pessoa

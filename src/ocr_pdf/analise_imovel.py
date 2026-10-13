@@ -20,21 +20,23 @@ CAMPOS_PRIORITARIOS = (
 )
 
 # Papel de cada nome citado no documento -> rótulo legível. "outro" recebe a descrição livre da LLM.
+# A ordem é a prioridade usada para ordenar an5_pessoas: dono e partes do imóvel primeiro, ruído no fim.
 PAPEIS_PESSOA = {
     "proprietario_atual": "proprietário atual",  # definido pela análise do documento inteiro
     "proprietario": "citado como proprietário",
-    "proprietario_anterior": "proprietário anterior",
     "conjuge": "cônjuge",
     "adquirente": "adquirente",
     "transmitente": "transmitente",
+    "proprietario_anterior": "proprietário anterior",
     "credor": "credor",
     "devedor": "devedor",
     "procurador": "procurador",
     "confrontante": "confrontante",
-    "oficial_cartorio": "oficial de cartório",
     "testemunha": "testemunha",
+    "oficial_cartorio": "oficial de cartório",
     "outro": "outro",
 }
+_PRIORIDADE_PAPEL = {papel: posicao for posicao, papel in enumerate(PAPEIS_PESSOA)}
 
 PROMPT_SISTEMA = """Você extrai dados de documentos imobiliários brasileiros.
 Use exclusivamente o conteúdo da página fornecida. Não deduza, complete, corrija nem invente valores.
@@ -180,23 +182,47 @@ def _itens_pessoas(itens: object, arquivo: str, pagina: int) -> list[dict[str, o
     return pessoas
 
 
+def _documento_completo(cpf_cnpj: object) -> str | None:
+    """Dígitos do CPF (11) ou CNPJ (14); None se mascarado ou lido com dígitos a mais/menos."""
+    digitos = re.sub(r"\D", "", cpf_cnpj) if isinstance(cpf_cnpj, str) else ""
+    return digitos if len(digitos) in (11, 14) else None
+
+
 def consolidar_pessoas(pessoas: Iterable[dict[str, object]]) -> list[dict[str, object]]:
     """Une as ocorrências da mesma pessoa no mesmo papel, acumulando as páginas em que aparece.
 
-    A identidade é o nome normalizado (sem acento, caixa e espaços extras); o CPF/CNPJ e a evidência
-    vêm da primeira ocorrência que os tiver. Uma pessoa com dois papéis gera dois itens.
+    A identidade é o CPF/CNPJ completo (só dígitos), quando houver; senão, o nome normalizado (sem
+    acento, caixa e espaços extras). Um nome sem CPF numa página herda o CPF que o mesmo nome tiver em
+    outra, se for um só. Assim, grafias diferentes do OCR com o mesmo CPF viram uma pessoa; o primeiro
+    nome é mantido e os demais vão para ``nomes_alternativos``. CPF/CNPJ e evidência vêm da primeira
+    ocorrência que os tiver. Uma pessoa com dois papéis gera dois itens. O resultado sai na ordem de
+    ``PAPEIS_PESSOA`` (proprietário atual primeiro) e, em cada papel, na ordem do texto.
     """
+    pessoas = [p for p in pessoas if _texto(p.get("nome"))]
+    documentos_por_nome: dict[str, set[str]] = {}
+    for pessoa in pessoas:
+        documento = _documento_completo(pessoa.get("cpf_cnpj"))
+        if documento:
+            documentos_por_nome.setdefault(_normalizar_nome(_texto(pessoa["nome"])), set()).add(documento)
+
     grupos: dict[tuple[str, str], dict[str, object]] = {}
     for pessoa in pessoas:
-        nome = _texto(pessoa.get("nome"))
-        if not nome:
-            continue
+        nome = _texto(pessoa["nome"])
+        nome_normalizado = _normalizar_nome(nome)
+        documento = _documento_completo(pessoa.get("cpf_cnpj"))
+        if documento is None and len(documentos_por_nome.get(nome_normalizado, ())) == 1:
+            documento = next(iter(documentos_por_nome[nome_normalizado]))
+        identidade = f"doc:{documento}" if documento else f"nome:{nome_normalizado}"
         papel = _texto(pessoa.get("papel")) or "outro"
         grupo = grupos.setdefault(
-            (_normalizar_nome(nome), papel),
+            (identidade, papel),
             {"nome": nome, "cpf_cnpj": None, "papel": papel, "descricao_papel": None,
              "paginas": [], "evidencia": ""},
         )
+        if _normalizar_nome(grupo["nome"]) != nome_normalizado:
+            alternativos = grupo.setdefault("nomes_alternativos", [])
+            if all(_normalizar_nome(n) != nome_normalizado for n in alternativos):
+                alternativos.append(nome)
         for chave in ("cpf_cnpj", "descricao_papel", "evidencia"):
             if not grupo[chave] and pessoa.get(chave):
                 grupo[chave] = pessoa[chave]
@@ -205,7 +231,39 @@ def consolidar_pessoas(pessoas: Iterable[dict[str, object]]) -> list[dict[str, o
             grupo["paginas"].append(pagina)
     for grupo in grupos.values():
         grupo["paginas"].sort()
-    return list(grupos.values())
+    # Ordena pela prioridade do papel; dentro do mesmo papel, mantém a ordem de aparição (sort estável).
+    return sorted(grupos.values(), key=lambda grupo: _PRIORIDADE_PAPEL.get(grupo["papel"], len(_PRIORIDADE_PAPEL)))
+
+
+# Linha do memorial descritivo do INCRA/SIGEF, ex.:
+# "Proprietário(a): XXXXXX RUI XXXXXX                CPF:  ***.132.459**"
+_LINHA_PROPRIETARIO_MEMORIAL = re.compile(
+    r"^[ \t]*Propriet[áa]rio\(a\):[ \t]*(?P<nome>\S.*?)(?:[ \t]{2,}(?:CPF|CNPJ):[ \t]*(?P<documento>\S+))?[ \t]*$",
+    re.MULTILINE,
+)
+
+
+def proprietarios_memorial_incra(arquivo: str, paginas: list[tuple[int, str]]) -> list[dict[str, object]]:
+    """Lê o campo "Proprietário(a)" do memorial do INCRA/SIGEF direto do texto, sem LLM.
+
+    O memorial já informa o proprietário atual; copiá-lo por regex evita que a LLM altere o nome
+    mascarado (ex.: "XXXXXXS" virando "XXXXXS") ou se recuse a usá-lo.
+    """
+    proprietarios = []
+    for pagina, texto in paginas:
+        for achado in _LINHA_PROPRIETARIO_MEMORIAL.finditer(texto):
+            proprietarios.append(
+                {
+                    "nome": achado["nome"].strip(),
+                    "cpf_cnpj": achado["documento"],
+                    "papel": "proprietario_atual",
+                    "descricao_papel": "Memorial descritivo INCRA/SIGEF, campo Proprietário(a)",
+                    "arquivo": arquivo,
+                    "pagina": pagina,
+                    "evidencia": " ".join(achado.group(0).split()),
+                }
+            )
+    return proprietarios
 
 
 def identificar_proprietarios_atuais(
@@ -310,8 +368,14 @@ def extrair_dados_imovel(
                         }
                     )
 
-    atuais, observacoes, alertas_atuais = identificar_proprietarios_atuais(arquivo, paginas, backend)
-    alertas.extend(alertas_atuais)
+    atuais = proprietarios_memorial_incra(arquivo, paginas)
+    if atuais:
+        observacoes = "Proprietário lido do campo \"Proprietário(a)\" do memorial do INCRA/SIGEF, sem LLM."
+        if any("XX" in p["nome"] or "*" in (p["cpf_cnpj"] or "") for p in atuais):
+            observacoes += " Nome ou CPF/CNPJ mascarado no documento."
+    else:
+        atuais, observacoes, alertas_atuais = identificar_proprietarios_atuais(arquivo, paginas, backend)
+        alertas.extend(alertas_atuais)
     pessoas = atuais + pessoas
 
     # Proprietário e CPF/CNPJ (consistência entre PDFs) vêm dos proprietários atuais; se a análise do

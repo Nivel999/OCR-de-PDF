@@ -103,7 +103,7 @@ grava apenas colunas novas com prefixo `an5_` (DDL em `sql/001_processamento_pdf
 | `an5_matricula` | text | Matrícula do imóvel extraída |
 | `an5_nome_imovel` | text | Nome do imóvel extraído |
 | `an5_area_total_imovel` | text | Área total exatamente como escrita (rótulo, sistema de referência e unidade) |
-| `an5_pessoas` | jsonb | Todas as pessoas citadas, uma entrada por pessoa e papel: `nome`, `cpf_cnpj`, `papel`, `descricao_papel`, `paginas`, `evidencia` (ver ARD-04) |
+| `an5_pessoas` | jsonb | Todas as pessoas citadas, uma entrada por pessoa e papel: `nome`, `cpf_cnpj`, `papel`, `descricao_papel`, `paginas`, `evidencia` e, quando o mesmo CPF/CNPJ aparece com outra grafia, `nomes_alternativos`; ordenadas por papel (proprietário atual primeiro, oficial de cartório e outros no fim) e, em cada papel, pela ordem no documento (ver ARD-04) |
 | `an5_confianca_media` | numeric(5,2) | Confiança média do OCR (0–100) |
 | `an5_descricao` | text | Descrição do resultado da confiança, ou o erro |
 | `an5_referencia` | text | Resumo dos dados trazidos pelo OCR/INCRA e pela LLM |

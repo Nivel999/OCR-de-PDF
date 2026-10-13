@@ -105,7 +105,9 @@ e classifica o papel de cada um: `proprietario`, `proprietario_anterior`, `conju
 `testemunha` ou `outro`, com a descrição livre em `descricao_papel`. O resultado fica na chave
 `pessoas` da extração, com uma entrada por pessoa e por papel. Ocorrências do mesmo nome são
 unidas mesmo com diferença de acento, caixa ou espaços, e as páginas onde ele aparece são
-acumuladas. O papel é atribuído página a página: alguém que comprou na página 1 e vendeu na
+acumuladas. Grafias diferentes com o mesmo CPF/CNPJ completo (11 ou 14 dígitos) também são
+unidas: fica o primeiro nome, e os outros vão para `nomes_alternativos`. CPF mascarado ou lido
+com dígitos a mais ou a menos não une ninguém. O papel é atribuído página a página: alguém que comprou na página 1 e vendeu na
 página 3 aparece duas vezes, uma como `adquirente` e outra como `transmitente`. Por isso
 `proprietario` significa apenas "citado como proprietário", o que numa matrícula costuma ser o
 dono da abertura, de décadas atrás.
@@ -118,6 +120,11 @@ com o ato de aquisição e a fração em `descricao_papel`. As observações sob
 `nome_proprietario` e `cpf_cnpj` saem dos proprietários atuais; se essa chamada não identificar
 ninguém, saem dos citados como proprietário. Como o documento inteiro precisa caber na janela da
 LLM, o Ollama usa 16384 tokens por padrão (`--contexto` muda esse valor).
+
+Nos memoriais descritivos do INCRA/SIGEF, o proprietário atual é lido direto da linha
+`Proprietário(a): … CPF/CNPJ: …` do texto, sem LLM, e a chamada do documento inteiro é pulada.
+O nome e o documento ficam exatamente como escritos, inclusive mascarados (`XXXXXX RUI XXXXXX`,
+`***.132.459**`); a API do INCRA vai completá-los.
 
 No Ollama, as chamadas da análise pedem saída em JSON (`format: json`), o que impede respostas
 com JSON quebrado. Com `--analise-imovel`, o resumo em Markdown não é gerado, a menos que se use
@@ -173,7 +180,7 @@ que outra mídia esteja pendente.
 |---|---|
 | `an5_matricula`, `an5_nome_imovel` | Primeiro valor extraído pela LLM (`--analise-imovel`). |
 | `an5_area_total_imovel` | Área total exatamente como escrita, ex.: `Área (Sistema Geodésico Local): 35,2723 ha`. |
-| `an5_pessoas` | JSON (`jsonb`) com todas as pessoas citadas: `nome`, `cpf_cnpj`, `papel`, `descricao_papel`, `paginas`, `evidencia`. |
+| `an5_pessoas` | JSON (`jsonb`) com todas as pessoas citadas: `nome`, `cpf_cnpj`, `papel`, `descricao_papel`, `paginas`, `evidencia`. Ordem: `proprietario_atual`, `proprietario`, `conjuge`, `adquirente`, `transmitente`, `proprietario_anterior`, `credor`, `devedor`, `procurador`, `confrontante`, `testemunha`, `oficial_cartorio`, `outro`; em cada papel, a ordem do documento. |
 | `an5_confianca_media` | Confiança média do OCR (0–100); vazio se o PDF só tem texto nativo. |
 | `an5_descricao` | Explicação da confiança (faixas, páginas para revisão) ou a mensagem de erro. |
 | `an5_referencia` | Todos os valores extraídos, com a página de origem, e o resumo da LLM. |
