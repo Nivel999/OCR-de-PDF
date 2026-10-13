@@ -90,10 +90,10 @@ class TestAnaliseImovel(unittest.TestCase):
 
     def test_proprietarios_atuais_substituem_os_citados(self):
         backend = BackendFalso(
-            [{"nome": "Carlos Rui Demuth", "cpf_cnpj": "534.132.459-53", "fracao": "1/2",
-              "ato": "R-13 adjudicação compulsória", "pagina": 2, "evidencia": "ADQUIRENTE: CARLOS RUI DEMUTH"},
+            [{"nome": "Pedro Alves Lima", "cpf_cnpj": "222.333.444-55", "fracao": "1/2",
+              "ato": "R-13 adjudicação compulsória", "pagina": 2, "evidencia": "ADQUIRENTE: PEDRO ALVES LIMA"},
              {"nome": "Nome com página inventada", "pagina": 99}],
-            observacoes="Roberto Lauro Demuth faleceu em 15/05/2024.",
+            observacoes="Ana Costa Lima faleceu em 01/01/2020.",
         )
         extracao = extrair_dados_imovel("matricula.pdf", [(1, "página um"), (2, "página dois")], backend)
 
@@ -102,17 +102,17 @@ class TestAnaliseImovel(unittest.TestCase):
         self.assertIn("--- Página 2 ---\npágina dois", backend.documentos[0])
         self.assertEqual(
             [i["valor"] for i in extracao["campos"]["nome_proprietario"]],
-            ["Carlos Rui Demuth", "Nome com página inventada"],
+            ["Pedro Alves Lima", "Nome com página inventada"],
         )
-        self.assertEqual([i["valor"] for i in extracao["campos"]["cpf_cnpj"]], ["534.132.459-53"])
+        self.assertEqual([i["valor"] for i in extracao["campos"]["cpf_cnpj"]], ["222.333.444-55"])
         pessoas = {(p["nome"], p["papel"]): p for p in extracao["pessoas"]}
-        atual = pessoas[("Carlos Rui Demuth", "proprietario_atual")]
+        atual = pessoas[("Pedro Alves Lima", "proprietario_atual")]
         self.assertEqual(atual["descricao_papel"], "R-13 adjudicação compulsória; fração 1/2")
         self.assertEqual(atual["paginas"], [2])
         self.assertEqual(pessoas[("Nome com página inventada", "proprietario_atual")]["paginas"], [])
         # O citado como proprietário continua na lista, mas não é mais o proprietário do documento.
         self.assertIn(("Maria da Silva", "proprietario"), pessoas)
-        self.assertEqual(extracao["observacoes_titularidade"], "Roberto Lauro Demuth faleceu em 15/05/2024.")
+        self.assertEqual(extracao["observacoes_titularidade"], "Ana Costa Lima faleceu em 01/01/2020.")
 
     def test_resposta_invalida_dos_proprietarios_atuais_gera_alerta(self):
         class BackendQuebrado(BackendFalso):
@@ -127,8 +127,8 @@ class TestAnaliseImovel(unittest.TestCase):
 
     def test_memorial_incra_le_proprietario_sem_llm(self):
         pagina = (
-            "Denominação: SÍTIO ROOMP                                              Natureza da Área: Particular\n"
-            "Proprietário(a): XXXXXXS ADMINISTRADORA DE BENXXXXXX                    CNPJ: **.*39.607/0001**\n"
+            "Denominação: SÍTIO EXEMPLO                                              Natureza da Área: Particular\n"
+            "Proprietário(a): XXXXXXA EMPRESA EXEMPLO XXXXXX                    CNPJ: **.*12.345/0001**\n"
             "Matrícula do imóvel: 1559"
         )
         backend = BackendFalso()
@@ -138,43 +138,43 @@ class TestAnaliseImovel(unittest.TestCase):
         atual = next(p for p in extracao["pessoas"] if p["papel"] == "proprietario_atual")
         self.assertEqual(
             (atual["nome"], atual["cpf_cnpj"], atual["paginas"]),
-            ("XXXXXXS ADMINISTRADORA DE BENXXXXXX", "**.*39.607/0001**", [1]),
+            ("XXXXXXA EMPRESA EXEMPLO XXXXXX", "**.*12.345/0001**", [1]),
         )
         self.assertEqual(
-            [i["valor"] for i in extracao["campos"]["nome_proprietario"]], ["XXXXXXS ADMINISTRADORA DE BENXXXXXX"]
+            [i["valor"] for i in extracao["campos"]["nome_proprietario"]], ["XXXXXXA EMPRESA EXEMPLO XXXXXX"]
         )
         self.assertIn("mascarado", extracao["observacoes_titularidade"])
 
     def test_memorial_incra_com_cpf_e_sem_documento(self):
         paginas = [
-            (1, "Proprietário(a): XXXXXX RUI XXXXXX                                       CPF:  ***.132.459**"),
+            (1, "Proprietário(a): XXXXXX JOSE XXXXXX                                       CPF:  ***.456.789**"),
             (2, "Proprietário(a): MARIA DA SILVA"),
-            (3, "PROPRIETÁRIO: JAIME MENDONÇA, CPF nº 030-830-459-87"),  # matrícula: não é o campo do memorial
+            (3, "PROPRIETÁRIO: JOÃO PEREIRA, CPF nº 333-444-555-66"),  # matrícula: não é o campo do memorial
         ]
         achados = [(p["nome"], p["cpf_cnpj"], p["pagina"]) for p in proprietarios_memorial_incra("x.pdf", paginas)]
-        self.assertEqual(achados, [("XXXXXX RUI XXXXXX", "***.132.459**", 1), ("MARIA DA SILVA", None, 2)])
+        self.assertEqual(achados, [("XXXXXX JOSE XXXXXX", "***.456.789**", 1), ("MARIA DA SILVA", None, 2)])
 
     def test_une_grafias_diferentes_pelo_cpf(self):
         pessoas = consolidar_pessoas([
-            {"nome": "RUDI DEMUTH", "papel": "adquirente", "pagina": 2, "cpf_cnpj": "108,791.709-30"},
-            {"nome": "RUDI DEMÚTE", "papel": "adquirente", "pagina": 1, "cpf_cnpj": "108.791.709-30"},
-            {"nome": "Rudi Demuth", "papel": "adquirente", "pagina": 5},  # sem CPF: herda pelo nome
-            {"nome": "Rudi Demuth", "papel": "conjuge", "pagina": 3},  # outro papel: item separado
+            {"nome": "PAULO SOUZA", "papel": "adquirente", "pagina": 2, "cpf_cnpj": "444,555.666-77"},
+            {"nome": "PAULO SÓUZE", "papel": "adquirente", "pagina": 1, "cpf_cnpj": "444.555.666-77"},
+            {"nome": "Paulo Souza", "papel": "adquirente", "pagina": 5},  # sem CPF: herda pelo nome
+            {"nome": "Paulo Souza", "papel": "conjuge", "pagina": 3},  # outro papel: item separado
         ])
 
         adquirente = next(p for p in pessoas if p["papel"] == "adquirente")
         self.assertEqual(len(pessoas), 2)
-        self.assertEqual(adquirente["nome"], "RUDI DEMUTH")
-        self.assertEqual(adquirente["nomes_alternativos"], ["RUDI DEMÚTE"])
+        self.assertEqual(adquirente["nome"], "PAULO SOUZA")
+        self.assertEqual(adquirente["nomes_alternativos"], ["PAULO SÓUZE"])
         self.assertEqual(adquirente["paginas"], [1, 2, 5])
-        self.assertEqual(adquirente["cpf_cnpj"], "108,791.709-30")
+        self.assertEqual(adquirente["cpf_cnpj"], "444,555.666-77")
 
     def test_cpf_mascarado_ou_incompleto_nao_une(self):
         pessoas = consolidar_pessoas([
-            {"nome": "SANDRA", "papel": "adquirente", "pagina": 1, "cpf_cnpj": "586.384.8629-49"},  # 12 dígitos
-            {"nome": "SANDRA MARA", "papel": "adquirente", "pagina": 2, "cpf_cnpj": "586.384.829-49"},
-            {"nome": "XXXX RUI", "papel": "proprietario", "pagina": 1, "cpf_cnpj": "***.132.459**"},
-            {"nome": "OUTRO RUI", "papel": "proprietario", "pagina": 1, "cpf_cnpj": "***.132.459**"},
+            {"nome": "LUCIA", "papel": "adquirente", "pagina": 1, "cpf_cnpj": "555.666.7778-88"},  # 12 dígitos
+            {"nome": "LUCIA MARA", "papel": "adquirente", "pagina": 2, "cpf_cnpj": "555.666.777-88"},
+            {"nome": "XXXX JOSE", "papel": "proprietario", "pagina": 1, "cpf_cnpj": "***.456.789**"},
+            {"nome": "OUTRO JOSE", "papel": "proprietario", "pagina": 1, "cpf_cnpj": "***.456.789**"},
         ])
         self.assertEqual(len(pessoas), 4)
         self.assertNotIn("nomes_alternativos", pessoas[0])

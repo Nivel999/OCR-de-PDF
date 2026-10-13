@@ -236,7 +236,7 @@ def consolidar_pessoas(pessoas: Iterable[dict[str, object]]) -> list[dict[str, o
 
 
 # Linha do memorial descritivo do INCRA/SIGEF, ex.:
-# "Proprietário(a): XXXXXX RUI XXXXXX                CPF:  ***.132.459**"
+# "Proprietário(a): XXXXXX JOSE XXXXXX                CPF:  ***.456.789**"
 _LINHA_PROPRIETARIO_MEMORIAL = re.compile(
     r"^[ \t]*Propriet[áa]rio\(a\):[ \t]*(?P<nome>\S.*?)(?:[ \t]{2,}(?:CPF|CNPJ):[ \t]*(?P<documento>\S+))?[ \t]*$",
     re.MULTILINE,
@@ -247,7 +247,7 @@ def proprietarios_memorial_incra(arquivo: str, paginas: list[tuple[int, str]]) -
     """Lê o campo "Proprietário(a)" do memorial do INCRA/SIGEF direto do texto, sem LLM.
 
     O memorial já informa o proprietário atual; copiá-lo por regex evita que a LLM altere o nome
-    mascarado (ex.: "XXXXXXS" virando "XXXXXS") ou se recuse a usá-lo.
+    mascarado (ex.: perder um "X" de "XXXXXX") ou se recuse a usá-lo.
     """
     proprietarios = []
     for pagina, texto in paginas:

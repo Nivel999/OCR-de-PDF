@@ -79,7 +79,7 @@ Por isso a janela padrão do Ollama passou de 8192 para 16384 tokens (`--context
 
 **Atualização (2026-10-13, teste com qwen3:8b):** nos memoriais do INCRA/SIGEF, o proprietário
 atual passou a ser lido por expressão regular da linha "Proprietário(a)", sem LLM. O qwen3:8b
-alterava o nome mascarado ("XXXXXXS" → "XXXXXS") e se recusava a tratá-lo como proprietário
+alterava o nome mascarado (perdia um "X" da máscara) e se recusava a tratá-lo como proprietário
 atual. As chamadas da análise passaram a usar `format: json` no Ollama, e o resumo em Markdown
 ficou opcional (`--com-resumo`).
 
