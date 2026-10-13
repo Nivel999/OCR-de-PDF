@@ -42,7 +42,7 @@ class Backend(Protocol):
 
 
 class BackendOllama:
-    def __init__(self, modelo: str, url: str | None = None, num_ctx: int = 8192):
+    def __init__(self, modelo: str, url: str | None = None, num_ctx: int = 16384):
         self.modelo = modelo
         self.url = (url or os.environ.get("OLLAMA_URL", "http://localhost:11434")).rstrip("/")
         self.num_ctx = num_ctx
@@ -89,11 +89,13 @@ class BackendAnthropic:
         return "".join(b.text for b in resposta.content if b.type == "text").strip()
 
 
-def criar_backend(nome: str, modelo: str | None) -> Backend | None:
+def criar_backend(nome: str, modelo: str | None, contexto: int = 16384) -> Backend | None:
+    """``contexto`` é a janela em tokens do Ollama; o documento inteiro (proprietários atuais) precisa caber
+    nela, senão o Ollama descarta o começo do texto sem avisar."""
     if nome == "nenhum":
         return None
     if nome == "ollama":
-        return BackendOllama(modelo or "qwen2.5:7b")
+        return BackendOllama(modelo or "qwen2.5:7b", num_ctx=contexto)
     if nome == "anthropic":
         return BackendAnthropic(modelo or "claude-opus-5-5")
     raise ValueError(f"Backend de LLM desconhecido: {nome}")

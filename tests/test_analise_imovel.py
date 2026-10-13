@@ -5,11 +5,25 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from ocr_pdf.analise_imovel import consolidar_consistencia, consolidar_pessoas, extrair_dados_imovel
+from ocr_pdf.analise_imovel import (
+    consolidar_consistencia, consolidar_pessoas, extrair_dados_imovel, identificar_proprietarios_atuais,
+)
 
 
 class BackendFalso:
+    """Responde por página; na chamada do documento inteiro devolve ``proprietarios_atuais``."""
+
+    def __init__(self, proprietarios_atuais=None, observacoes=""):
+        self.proprietarios_atuais = proprietarios_atuais or []
+        self.observacoes = observacoes
+        self.documentos: list[str] = []
+
     def gerar(self, sistema: str, mensagem: str) -> str:
+        if "PROPRIETÁRIOS ATUAIS" in mensagem:
+            self.documentos.append(mensagem)
+            return json.dumps(
+                {"proprietarios_atuais": self.proprietarios_atuais, "observacoes": self.observacoes}
+            )
         return json.dumps(
             {
                 "pessoas": [
@@ -71,6 +85,41 @@ class TestAnaliseImovel(unittest.TestCase):
 
         self.assertEqual([i["valor"] for i in extracao["campos"]["nome_proprietario"]], ["Maria da Silva"])
         self.assertEqual([i["valor"] for i in extracao["campos"]["cpf_cnpj"]], ["123.456.789-00"])
+
+    def test_proprietarios_atuais_substituem_os_citados(self):
+        backend = BackendFalso(
+            [{"nome": "Carlos Rui Demuth", "cpf_cnpj": "534.132.459-53", "fracao": "1/2",
+              "ato": "R-13 adjudicação compulsória", "pagina": 2, "evidencia": "ADQUIRENTE: CARLOS RUI DEMUTH"},
+             {"nome": "Nome com página inventada", "pagina": 99}],
+            observacoes="Roberto Lauro Demuth faleceu em 15/05/2024.",
+        )
+        extracao = extrair_dados_imovel("matricula.pdf", [(1, "página um"), (2, "página dois")], backend)
+
+        self.assertEqual(len(backend.documentos), 1)
+        self.assertIn("--- Página 1 ---\npágina um", backend.documentos[0])
+        self.assertIn("--- Página 2 ---\npágina dois", backend.documentos[0])
+        self.assertEqual(
+            [i["valor"] for i in extracao["campos"]["nome_proprietario"]],
+            ["Carlos Rui Demuth", "Nome com página inventada"],
+        )
+        self.assertEqual([i["valor"] for i in extracao["campos"]["cpf_cnpj"]], ["534.132.459-53"])
+        pessoas = {(p["nome"], p["papel"]): p for p in extracao["pessoas"]}
+        atual = pessoas[("Carlos Rui Demuth", "proprietario_atual")]
+        self.assertEqual(atual["descricao_papel"], "R-13 adjudicação compulsória; fração 1/2")
+        self.assertEqual(atual["paginas"], [2])
+        self.assertEqual(pessoas[("Nome com página inventada", "proprietario_atual")]["paginas"], [])
+        # O citado como proprietário continua na lista, mas não é mais o proprietário do documento.
+        self.assertIn(("Maria da Silva", "proprietario"), pessoas)
+        self.assertEqual(extracao["observacoes_titularidade"], "Roberto Lauro Demuth faleceu em 15/05/2024.")
+
+    def test_resposta_invalida_dos_proprietarios_atuais_gera_alerta(self):
+        class BackendQuebrado(BackendFalso):
+            def gerar(self, sistema, mensagem):
+                return "não sei" if "PROPRIETÁRIOS ATUAIS" in mensagem else super().gerar(sistema, mensagem)
+
+        atuais, observacoes, alertas = identificar_proprietarios_atuais("m.pdf", [(1, "texto")], BackendQuebrado())
+        self.assertEqual((atuais, observacoes), ([], ""))
+        self.assertIn("Proprietários atuais", alertas[0])
 
     def test_consolida_mesma_pessoa_ignorando_acento_e_caixa(self):
         pessoas = consolidar_pessoas([

@@ -69,7 +69,7 @@ def _gravar_saida_analise(
 def processar_banco(args: argparse.Namespace, cfg: ConfigOCR) -> int:
     """Processa as mídias com ``an5_status = 'pendente'`` e grava o resultado em ``cadastro.midia``."""
     banco = BancoProcessamentoPDF(ConfigBanco.do_ambiente())
-    backend = criar_backend(args.llm, args.modelo)
+    backend = criar_backend(args.llm, args.modelo, args.contexto)
     pasta_analise = None if args.sem_saida_analise else Path(args.saida) / "banco"
     processados = 0
 
@@ -204,7 +204,7 @@ def processar_pasta(args: argparse.Namespace, cfg: ConfigOCR) -> int:
     for n in ("textos", "relatorios"):
         pastas[n].mkdir(parents=True, exist_ok=True)
 
-    backend = criar_backend(args.llm, args.modelo)
+    backend = criar_backend(args.llm, args.modelo, args.contexto)
     pdfs = sorted(p for p in entrada.rglob("*") if p.suffix.lower() == ".pdf")
     processados = 0
     trabalhos: list[tuple[Path, Documento, str]] = []
@@ -291,6 +291,8 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--analise-imovel", action="store_true",
                     help="extrai dados imobiliários estruturados e compara consistência entre PDFs (exige --llm)")
     ap.add_argument("--modelo", help="modelo da LLM (ex.: qwen2.5:7b no Ollama)")
+    ap.add_argument("--contexto", type=int, default=16384,
+                    help="janela de contexto do Ollama em tokens; o documento inteiro precisa caber (padrão: 16384)")
     ap.add_argument("--tamanho-bloco", type=int, default=12000,
                     help="máx. de caracteres por chamada à LLM (textos maiores são divididos)")
     ap.add_argument("--monitorar", type=int, metavar="SEGUNDOS",
