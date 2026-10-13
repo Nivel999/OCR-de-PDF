@@ -123,8 +123,8 @@ LLM, o Ollama usa 16384 tokens por padrão (`--contexto` muda esse valor).
 
 Nos memoriais descritivos do INCRA/SIGEF, o proprietário atual é lido direto da linha
 `Proprietário(a): … CPF/CNPJ: …` do texto, sem LLM, e a chamada do documento inteiro é pulada.
-O nome e o documento ficam exatamente como escritos, inclusive mascarados (`XXXXXX RUI XXXXXX`,
-`***.132.459**`); a API do INCRA vai completá-los.
+O nome e o documento ficam exatamente como escritos, inclusive mascarados (`XXXXXX JOSE XXXXXX`,
+`***.456.789**`); a API do INCRA vai completá-los.
 
 No Ollama, as chamadas da análise pedem saída em JSON (`format: json`), o que impede respostas
 com JSON quebrado. Com `--analise-imovel`, o resumo em Markdown não é gerado, a menos que se use
@@ -161,7 +161,8 @@ O modo `--banco` transforma a aplicação em um worker: busca em `cadastro.midia
 mídia com `an5_status = 'pendente'`, baixa o PDF de `link`, processa localmente e grava
 o resultado nas colunas `an5_*` da própria `cadastro.midia`. Crie as colunas com
 `sql/001_processamento_pdf.sql` e `sql/003_an5_pessoas.sql` (idempotentes, não apagam dados). A URL de conexão não é
-versionada; defina-a na sessão do PowerShell antes de executar:
+versionada: copie `.env.example` para `.env` e preencha `OCR_PDF_DATABASE_URL` (o `.env` é ignorado pelo
+git), ou defina a variável na sessão do PowerShell antes de executar:
 
 ```powershell
 $env:OCR_PDF_DATABASE_URL = 'postgresql://USUARIO:SENHA@HOST:5432/BANCO'
@@ -209,3 +210,18 @@ Antes de instalar uma LLM, é possível validar somente o OCR em uma mídia de t
 
 Sem LLM, só são gravados confiança, descrição, hash, status e data; os campos do
 imóvel ficam vazios.
+
+## Dados sensíveis (LGPD)
+
+Os PDFs trazem dados pessoais (nomes, CPF/CNPJ, estado civil, endereços, óbitos). O repositório é
+público, então:
+
+- **Nunca versione** `.env` (URL e senha do banco), PDFs de `entrada/` nem a pasta `saida/`
+  (textos, relatórios e extrações com dados pessoais). Todos já estão no `.gitignore`; confira
+  com `git status` antes de cada commit.
+- **Testes e exemplos usam só dados fictícios.** Não copie nomes, CPFs, CNPJs, matrículas ou
+  trechos de documentos reais para testes, documentação, issues ou mensagens de commit.
+- **Prefira a LLM local** (`--llm ollama`): com `--llm anthropic`, o texto dos documentos é
+  enviado a uma API externa.
+- A pasta de análise `saida/banco/` é temporária e deve ser apagada quando o pipeline for
+  validado.
