@@ -28,7 +28,7 @@ COLUNAS_EXTRACAO = {
 }
 
 ROTULOS_REFERENCIA = {
-    "nome_proprietario": "Proprietário",
+    "nome_proprietario": "Proprietário(s)",
     "cpf_cnpj": "CPF/CNPJ",
     "nome_propriedade": "Imóvel",
     "classificacao_dominio": "Domínio",
@@ -146,10 +146,15 @@ def montar_referencia(extracao: dict[str, Any] | None, resumo: str | None) -> st
         ]
         if valores:
             linhas.append(f"{rotulo}: " + "; ".join(valores))
+    if extracao.get("observacoes_titularidade"):
+        linhas.append(f"Titularidade: {extracao['observacoes_titularidade']}")
+    pessoas = _pessoas(extracao)
+    # A linha "Proprietário(s)" já mostra os atuais ou, sem eles, os citados como proprietário.
+    papel_dono = "proprietario_atual" if any(p.get("papel") == "proprietario_atual" for p in pessoas) else "proprietario"
     outras = []
-    for pessoa in _pessoas(extracao):
-        if pessoa.get("papel") == "proprietario":
-            continue  # já listado na linha "Proprietário"
+    for pessoa in pessoas:
+        if pessoa.get("papel") == papel_dono:
+            continue
         papel = pessoa.get("descricao_papel") if pessoa.get("papel") == "outro" else None
         detalhes = [papel or PAPEIS_PESSOA.get(pessoa.get("papel"), "outro")]
         if pessoa.get("cpf_cnpj"):

@@ -58,7 +58,7 @@ class TestBanco(unittest.TestCase):
 
     def test_referencia_lista_valores_com_pagina_e_resumo(self):
         referencia = montar_referencia(EXTRACAO, "Matrícula de imóvel rural.")
-        self.assertIn("Proprietário: Maria da Silva (p. 1)", referencia)
+        self.assertIn("Proprietário(s): Maria da Silva (p. 1)", referencia)
         self.assertIn("Matrícula: 12.345 (p. 2); 99.999 (p. 4)", referencia)
         self.assertNotIn("Área total", referencia)
         self.assertIn(
@@ -66,6 +66,21 @@ class TestBanco(unittest.TestCase):
         )
         self.assertTrue(referencia.endswith("Resumo: Matrícula de imóvel rural."))
         self.assertIsNone(montar_referencia(None, None))
+
+    def test_referencia_mostra_proprietarios_atuais_e_titularidade(self):
+        extracao = {
+            "campos": {"nome_proprietario": [{"valor": "Carlos Rui Demuth", "pagina": 4}]},
+            "observacoes_titularidade": "Roberto Lauro Demuth faleceu em 15/05/2024.",
+            "pessoas": [
+                {"nome": "Carlos Rui Demuth", "papel": "proprietario_atual", "paginas": [4]},
+                {"nome": "Jaime Mendonça", "papel": "proprietario", "paginas": [1]},
+            ],
+        }
+        referencia = montar_referencia(extracao, None)
+        self.assertIn("Proprietário(s): Carlos Rui Demuth (p. 4)", referencia)
+        self.assertIn("Titularidade: Roberto Lauro Demuth faleceu em 15/05/2024.", referencia)
+        # Quem só é citado como proprietário (dono antigo) vai para "Demais pessoas".
+        self.assertIn("Demais pessoas: Jaime Mendonça (citado como proprietário, p. 1)", referencia)
 
     def test_descreve_confianca_com_ocr_e_nativo(self):
         metricas = {

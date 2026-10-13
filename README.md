@@ -105,10 +105,19 @@ e classifica o papel de cada um: `proprietario`, `proprietario_anterior`, `conju
 `testemunha` ou `outro`, com a descrição livre em `descricao_papel`. O resultado fica na chave
 `pessoas` da extração, com uma entrada por pessoa e por papel. Ocorrências do mesmo nome são
 unidas mesmo com diferença de acento, caixa ou espaços, e as páginas onde ele aparece são
-acumuladas. Os campos `nome_proprietario` e `cpf_cnpj` são derivados das pessoas com papel
-`proprietario`, então todos os proprietários entram e não só o principal. O papel é atribuído
-página a página: alguém que comprou na página 1 e vendeu na página 3 aparece duas vezes, uma como
-`adquirente` e outra como `transmitente`.
+acumuladas. O papel é atribuído página a página: alguém que comprou na página 1 e vendeu na
+página 3 aparece duas vezes, uma como `adquirente` e outra como `transmitente`. Por isso
+`proprietario` significa apenas "citado como proprietário", o que numa matrícula costuma ser o
+dono da abertura, de décadas atrás.
+
+Depois das páginas, a LLM recebe **o documento inteiro** numa chamada só e segue a cadeia de
+registros (R-1, R-2, …) para dizer quem são os **proprietários atuais**: papel `proprietario_atual`,
+com o ato de aquisição e a fração em `descricao_papel`. As observações sobre a titularidade
+(óbito, matrícula encerrada, desapropriação parcial, leituras duvidosas do OCR) ficam em
+`observacoes_titularidade` e na linha "Titularidade" de `an5_referencia`. Os campos
+`nome_proprietario` e `cpf_cnpj` saem dos proprietários atuais; se essa chamada não identificar
+ninguém, saem dos citados como proprietário. Como o documento inteiro precisa caber na janela da
+LLM, o Ollama usa 16384 tokens por padrão (`--contexto` muda esse valor).
 
 Cada valor salvo tem `arquivo`, `pagina` e um trecho de `evidencia`; o arquivo e a página são
 anexados pelo programa, não deduzidos pelo modelo. Ao fim do lote,

@@ -21,7 +21,8 @@ CAMPOS_PRIORITARIOS = (
 
 # Papel de cada nome citado no documento -> rótulo legível. "outro" recebe a descrição livre da LLM.
 PAPEIS_PESSOA = {
-    "proprietario": "proprietário",
+    "proprietario_atual": "proprietário atual",  # definido pela análise do documento inteiro
+    "proprietario": "citado como proprietário",
     "proprietario_anterior": "proprietário anterior",
     "conjuge": "cônjuge",
     "adquirente": "adquirente",
@@ -79,6 +80,34 @@ copie a linha da área total exatamente como escrita, com rótulo, sistema de re
 <pagina>
 {texto}
 </pagina>"""
+
+
+PROMPT_PROPRIETARIOS = """Abaixo está o texto completo do arquivo `{arquivo}`, página a página. Identifique
+os PROPRIETÁRIOS ATUAIS do imóvel e devolva exatamente este JSON:
+{{
+  "proprietarios_atuais": [{{"nome": "", "cpf_cnpj": "", "fracao": "", "ato": "", "pagina": 0, "evidencia": ""}}],
+  "observacoes": ""
+}}
+
+Regras:
+- Em matrícula, siga em ordem a cadeia de registros (R-1, R-2, ...) e averbações. Proprietário atual é
+  quem adquiriu o imóvel ou uma fração dele no registro de transmissão mais recente e não a transmitiu
+  depois. Quem vendeu, doou, integralizou ou de outra forma transmitiu deixa de ser proprietário. Inclua
+  todos os coproprietários e os cônjuges que figurem como adquirentes.
+- Desapropriação ou transferência de apenas parte da área não muda os proprietários do restante;
+  registre-a em `observacoes`.
+- Em memorial descritivo do INCRA/SIGEF, ou outro documento com o campo "Proprietário", use esse campo
+  exatamente como escrito, mesmo que esteja mascarado.
+- `fracao`: a fração ou parte ideal, se estiver escrita; senão, vazio. `ato`: o registro de aquisição
+  (ex.: "R-13 adjudicação compulsória"). `pagina`: a página onde está esse ato. Copie nome e CPF/CNPJ
+  como escritos.
+- Em `observacoes`, registre o que afeta a titularidade: óbito de proprietário, matrícula encerrada ou
+  transferida, ônus vigentes, leituras do OCR duvidosas em nomes ou números.
+- Se não for possível determinar os proprietários atuais, devolva a lista vazia e explique em `observacoes`.
+
+<documento>
+{texto}
+</documento>"""
 
 
 class Backend(Protocol):
@@ -179,10 +208,57 @@ def consolidar_pessoas(pessoas: Iterable[dict[str, object]]) -> list[dict[str, o
     return list(grupos.values())
 
 
+def identificar_proprietarios_atuais(
+    arquivo: str, paginas: list[tuple[int, str]], backend: Backend
+) -> tuple[list[dict[str, object]], str, list[str]]:
+    """Uma chamada com o documento inteiro: a LLM segue a cadeia de registros e diz quem é dono hoje.
+
+    Devolve as pessoas com papel ``proprietario_atual``, as observações sobre a titularidade e alertas.
+    """
+    texto = "\n\n".join(
+        f"--- Página {pagina} ---\n{conteudo}" for pagina, conteudo in paginas if conteudo.strip()
+    )
+    if not texto:
+        return [], "", []
+    try:
+        resultado = _objeto_json(
+            backend.gerar(PROMPT_SISTEMA, PROMPT_PROPRIETARIOS.format(arquivo=arquivo, texto=texto))
+        )
+    except (ValueError, json.JSONDecodeError) as erro:
+        return [], "", [f"Proprietários atuais: resposta estruturada inválida da LLM ({erro})."]
+
+    paginas_validas = {pagina for pagina, _ in paginas}
+    proprietarios = []
+    itens = resultado.get("proprietarios_atuais")
+    for item in itens if isinstance(itens, list) else []:
+        if not isinstance(item, dict) or not _texto(item.get("nome")):
+            continue
+        ato, fracao = _texto(item.get("ato")), _texto(item.get("fracao"))
+        detalhes = [ato] * bool(ato) + [f"fração {fracao}"] * bool(fracao)
+        pagina = item.get("pagina")
+        proprietarios.append(
+            {
+                "nome": _texto(item["nome"]),
+                "cpf_cnpj": _texto(item.get("cpf_cnpj")) or None,
+                "papel": "proprietario_atual",
+                "descricao_papel": "; ".join(detalhes) or None,
+                "arquivo": arquivo,
+                # A página vem da LLM; só é aceita se existir no documento.
+                "pagina": pagina if isinstance(pagina, int) and pagina in paginas_validas else None,
+                "evidencia": _texto(item.get("evidencia")),
+            }
+        )
+    return proprietarios, _texto(resultado.get("observacoes")), []
+
+
 def extrair_dados_imovel(
     arquivo: str, paginas: Iterable[tuple[int, str]], backend: Backend
 ) -> dict[str, object]:
-    """Consulta a LLM por página e anexa a citação determinística de arquivo/página a cada achado."""
+    """Consulta a LLM por página e, ao final, uma vez com o documento inteiro para os proprietários atuais.
+
+    Anexa a citação determinística de arquivo/página a cada achado.
+    """
+    paginas = list(paginas)
     campos: dict[str, list[dict[str, object]]] = {campo: [] for campo in CAMPOS_PRIORITARIOS}
     pessoas: list[dict[str, object]] = []
     atributos: list[dict[str, object]] = []
@@ -208,16 +284,7 @@ def extrair_dados_imovel(
         for campo in CAMPOS_PRIORITARIOS:
             campos[campo].extend(_itens_campo(dados.get(campo), arquivo, pagina))
 
-        # Proprietário e CPF/CNPJ saem da lista de pessoas, para a checagem de consistência entre PDFs.
-        pessoas_pagina = _itens_pessoas(resultado.get("pessoas"), arquivo, pagina)
-        pessoas.extend(pessoas_pagina)
-        for pessoa in pessoas_pagina:
-            if pessoa["papel"] != "proprietario":
-                continue
-            fonte = {"arquivo": arquivo, "pagina": pagina, "evidencia": pessoa["evidencia"]}
-            campos["nome_proprietario"].append({"valor": pessoa["nome"], **fonte})
-            if pessoa["cpf_cnpj"]:
-                campos["cpf_cnpj"].append({"valor": pessoa["cpf_cnpj"], **fonte})
+        pessoas.extend(_itens_pessoas(resultado.get("pessoas"), arquivo, pagina))
 
         itens = resultado.get("demais_atributos_relevantes", [])
         if isinstance(itens, list):
@@ -240,10 +307,26 @@ def extrair_dados_imovel(
                         }
                     )
 
+    atuais, observacoes, alertas_atuais = identificar_proprietarios_atuais(arquivo, paginas, backend)
+    alertas.extend(alertas_atuais)
+    pessoas = atuais + pessoas
+
+    # Proprietário e CPF/CNPJ (consistência entre PDFs) vêm dos proprietários atuais; se a análise do
+    # documento inteiro não os identificou, usa quem as páginas citam como proprietário.
+    papel_dono = "proprietario_atual" if atuais else "proprietario"
+    for pessoa in pessoas:
+        if pessoa["papel"] != papel_dono:
+            continue
+        fonte = {"arquivo": arquivo, "pagina": pessoa["pagina"], "evidencia": pessoa["evidencia"]}
+        campos["nome_proprietario"].append({"valor": pessoa["nome"], **fonte})
+        if pessoa["cpf_cnpj"]:
+            campos["cpf_cnpj"].append({"valor": pessoa["cpf_cnpj"], **fonte})
+
     return {
         "arquivo": arquivo,
         "campos": campos,
         "pessoas": consolidar_pessoas(pessoas),
+        "observacoes_titularidade": observacoes,
         "demais_atributos_relevantes": atributos,
         "alertas": alertas,
     }

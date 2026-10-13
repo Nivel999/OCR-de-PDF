@@ -71,9 +71,15 @@ classifica cada um em `proprietario`, `proprietario_anterior`, `conjuge`, `adqui
 `testemunha` ou `outro` (com `descricao_papel`). A lista vai para a coluna `jsonb`
 `cadastro.midia.an5_pessoas`, com uma entrada por pessoa e por papel.
 
+**Atualização (2026-10-13):** o teste com as mídias 757–761 mostrou que `proprietario` (citado
+como proprietário) aponta para o dono da abertura da matrícula, não para o atual. Foi adotada
+uma chamada extra por documento, com o texto inteiro, que devolve os proprietários atuais
+(papel `proprietario_atual`) seguindo a cadeia de registros, e as observações de titularidade.
+Por isso a janela padrão do Ollama passou de 8192 para 16384 tokens (`--contexto`).
+
 **Consequências:** a mudança não cria tabela nova; a consulta por papel usa
-`jsonb_array_elements`. O papel é decidido página a página, então não há inferência de
-proprietário atual a partir da cadeia de transmissões da matrícula. A identidade de uma pessoa
+`jsonb_array_elements`. O papel por página continua literal; o proprietário atual depende de a
+LLM interpretar a cadeia inteira, o que exige um modelo maior que a extração por página. A identidade de uma pessoa
 é o nome normalizado, de modo que variações de OCR no nome geram entradas separadas. O CPF dos
 proprietários do Memorial INCRA virá de uma API (a definir).
 
