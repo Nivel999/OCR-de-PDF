@@ -1,7 +1,7 @@
 """Geração de resumo com LLM.
 
 Backends:
-  - "ollama":    LLM local (ex.: um modelo 7B) servido pelo Ollama. É o alvo do projeto final.
+  - "ollama":    LLM local servida pelo Ollama (padrão: qwen3:8b). É o alvo do projeto final.
   - "anthropic": Claude via API, para testes/comparação de qualidade.
 
 Modelos 7B têm contexto curto, então textos longos são resumidos em blocos
@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import urllib.request
 from typing import Protocol
 
@@ -38,16 +39,22 @@ PROMPT_FINAL = (
 
 
 class Backend(Protocol):
-    def gerar(self, sistema: str, mensagem: str) -> str: ...
+    def gerar(self, sistema: str, mensagem: str, formato_json: bool = False) -> str: ...
+
+
+MODELO_OLLAMA_PADRAO = "qwen3:8b"
 
 
 class BackendOllama:
-    def __init__(self, modelo: str, url: str | None = None, num_ctx: int = 16384):
+    def __init__(self, modelo: str, url: str | None = None, num_ctx: int = 16384, pensar: bool | None = False):
         self.modelo = modelo
         self.url = (url or os.environ.get("OLLAMA_URL", "http://localhost:11434")).rstrip("/")
         self.num_ctx = num_ctx
+        # Modelos com raciocínio (ex.: qwen3) escrevem o "pensamento" antes da resposta, o que gasta
+        # tempo e atrapalha o JSON. False desliga; None não envia a opção (modelos sem raciocínio).
+        self.pensar = pensar
 
-    def gerar(self, sistema: str, mensagem: str) -> str:
+    def gerar(self, sistema: str, mensagem: str, formato_json: bool = False) -> str:
         corpo = {
             "model": self.modelo,
             "stream": False,
@@ -57,13 +64,18 @@ class BackendOllama:
                 {"role": "user", "content": mensagem},
             ],
         }
+        if self.pensar is not None:
+            corpo["think"] = self.pensar
+        if formato_json:
+            corpo["format"] = "json"  # o Ollama restringe a saída a JSON válido
         req = urllib.request.Request(
             f"{self.url}/api/chat",
             data=json.dumps(corpo).encode("utf-8"),
             headers={"Content-Type": "application/json"},
         )
-        with urllib.request.urlopen(req, timeout=600) as resp:
-            return json.loads(resp.read())["message"]["content"].strip()
+        with urllib.request.urlopen(req, timeout=1800) as resp:
+            conteudo = json.loads(resp.read())["message"]["content"]
+        return re.sub(r"<think>.*?</think>", "", conteudo, flags=re.DOTALL).strip()
 
 
 class BackendAnthropic:
@@ -73,7 +85,8 @@ class BackendAnthropic:
         self.cliente = anthropic.Anthropic()
         self.modelo = modelo
 
-    def gerar(self, sistema: str, mensagem: str) -> str:
+    def gerar(self, sistema: str, mensagem: str, formato_json: bool = False) -> str:
+        # formato_json é ignorado: o prompt já pede JSON e o parser tolera texto em volta.
         resposta = self.cliente.beta.messages.create(
             model=self.modelo,
             max_tokens=16000,
@@ -95,7 +108,7 @@ def criar_backend(nome: str, modelo: str | None, contexto: int = 16384) -> Backe
     if nome == "nenhum":
         return None
     if nome == "ollama":
-        return BackendOllama(modelo or "qwen2.5:7b", num_ctx=contexto)
+        return BackendOllama(modelo or MODELO_OLLAMA_PADRAO, num_ctx=contexto)
     if nome == "anthropic":
         return BackendAnthropic(modelo or "claude-opus-5-5")
     raise ValueError(f"Backend de LLM desconhecido: {nome}")
