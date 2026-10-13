@@ -99,6 +99,17 @@ propriedade, classificação do domínio, matrícula e código INCRA/SNCR. Tamb�
 explícitos relevantes, como área, localização, CAR, CCIR, NIRF, ITR, cartório, confrontações,
 ônus e restrições.
 
+Além disso, a LLM lista **todos os nomes** de pessoas físicas e jurídicas citados em cada página
+e classifica o papel de cada um: `proprietario`, `proprietario_anterior`, `conjuge`, `adquirente`,
+`transmitente`, `credor`, `devedor`, `procurador`, `confrontante`, `oficial_cartorio`,
+`testemunha` ou `outro`, com a descrição livre em `descricao_papel`. O resultado fica na chave
+`pessoas` da extração, com uma entrada por pessoa e por papel. Ocorrências do mesmo nome são
+unidas mesmo com diferença de acento, caixa ou espaços, e as páginas onde ele aparece são
+acumuladas. Os campos `nome_proprietario` e `cpf_cnpj` são derivados das pessoas com papel
+`proprietario`, então todos os proprietários entram e não só o principal. O papel é atribuído
+página a página: alguém que comprou na página 1 e vendeu na página 3 aparece duas vezes, uma como
+`adquirente` e outra como `transmitente`.
+
 Cada valor salvo tem `arquivo`, `pagina` e um trecho de `evidencia`; o arquivo e a página são
 anexados pelo programa, não deduzidos pelo modelo. Ao fim do lote,
 `consistencia_imovel.json` agrupa os valores encontrados e marca cada campo como:
@@ -129,7 +140,7 @@ Prefira `--llm ollama` para manter os PDFs e seus dados pessoais processados loc
 O modo `--banco` transforma a aplicação em um worker: busca em `cadastro.midia` uma
 mídia com `an5_status = 'pendente'`, baixa o PDF de `link`, processa localmente e grava
 o resultado nas colunas `an5_*` da própria `cadastro.midia`. Crie as colunas com
-`sql/001_processamento_pdf.sql` (idempotente, não apaga dados). A URL de conexão não é
+`sql/001_processamento_pdf.sql` e `sql/003_an5_pessoas.sql` (idempotentes, não apagam dados). A URL de conexão não é
 versionada; defina-a na sessão do PowerShell antes de executar:
 
 ```powershell
@@ -149,6 +160,7 @@ que outra mídia esteja pendente.
 |---|---|
 | `an5_matricula`, `an5_nome_imovel` | Primeiro valor extraído pela LLM (`--analise-imovel`). |
 | `an5_area_total_imovel` | Área total exatamente como escrita, ex.: `Área (Sistema Geodésico Local): 35,2723 ha`. |
+| `an5_pessoas` | JSON (`jsonb`) com todas as pessoas citadas: `nome`, `cpf_cnpj`, `papel`, `descricao_papel`, `paginas`, `evidencia`. |
 | `an5_confianca_media` | Confiança média do OCR (0–100); vazio se o PDF só tem texto nativo. |
 | `an5_descricao` | Explicação da confiança (faixas, páginas para revisão) ou a mensagem de erro. |
 | `an5_referencia` | Todos os valores extraídos, com a página de origem, e o resumo da LLM. |
@@ -156,6 +168,12 @@ que outra mídia esteja pendente.
 | `an5_tentativas` | Quantas vezes o processamento foi iniciado. |
 | `an5_data_transformacao` | Data/hora do último processamento. |
 | `an5_pdf_sha256` | Hash do PDF; um PDF idêntico já concluído tem o resultado copiado (`reutilizado`). |
+
+**Saída temporária de análise:** enquanto o pipeline é validado, cada mídia processada também
+ganha uma cópia em `saida/banco/midia-<id>/`: `banco.json` (valores gravados nas colunas
+`an5_*`), `texto.txt` (texto extraído), `relatorio.json` (métricas por página) e, quando houver
+LLM, `extracao.json` e `resumo.md`. A pasta não é versionada. Use `--sem-saida-analise` para
+gravar só no banco; quando o pipeline estiver validado, essa saída será removida.
 
 Use `--monitorar 30` para manter o worker ativo, verificando a cada 30 segundos.
 O worker usa OCR em 600 DPI e reserva trabalho com segurança para permitir múltiplas

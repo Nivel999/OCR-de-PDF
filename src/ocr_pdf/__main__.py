@@ -17,8 +17,8 @@ from pathlib import Path
 
 from .analise_imovel import consolidar_consistencia, extrair_dados_imovel
 from .banco import (
-    TIPOS_DOCUMENTO_OCR, BancoProcessamentoPDF, ConfigBanco, calcular_sha256, descrever_confianca,
-    montar_referencia,
+    TIPOS_DOCUMENTO_OCR, BancoProcessamentoPDF, ConfigBanco, calcular_sha256, campos_midia,
+    descrever_confianca, montar_referencia,
 )
 from .config import RAIZ_PROJETO, ConfigOCR
 from .extrator import Documento, extrair_pdf, reprocessar_paginas
@@ -34,10 +34,43 @@ def _baixar_pdf(link: str, destino: Path) -> None:
         shutil.copyfileobj(resposta, arquivo)
 
 
+# Saída temporária de análise do modo --banco: cópia em disco do que foi gravado no banco, para
+# conferência. Será removida quando o pipeline estiver validado (basta apagar esta função e a
+# opção --sem-saida-analise).
+def _gravar_saida_analise(
+    pasta: Path | None, id_midia: int, banco: dict, doc: Documento | None = None,
+    extracao: dict | None = None, resumo: str | None = None,
+) -> None:
+    if pasta is None:
+        return
+    destino = pasta / f"midia-{id_midia}"
+
+    def json_(nome: str, valor: object) -> None:
+        (destino / nome).write_text(json.dumps(valor, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    if isinstance(banco.get("an5_pessoas"), str):
+        banco = {**banco, "an5_pessoas": json.loads(banco["an5_pessoas"])}
+    try:  # o banco já foi atualizado; um erro aqui não pode marcar a mídia como falha
+        destino.mkdir(parents=True, exist_ok=True)
+        json_("banco.json", banco)
+        if doc is not None:
+            (destino / "texto.txt").write_text(doc.texto, encoding="utf-8")
+            json_("relatorio.json", doc.para_dict())
+        if extracao is not None:
+            json_("extracao.json", extracao)
+        if resumo:
+            (destino / "resumo.md").write_text(resumo, encoding="utf-8")
+    except OSError as erro:
+        print(f"  AVISO: não foi possível gravar a saída de análise em {destino}: {erro}")
+        return
+    print(f"  saída de análise -> {destino}")
+
+
 def processar_banco(args: argparse.Namespace, cfg: ConfigOCR) -> int:
     """Processa as mídias com ``an5_status = 'pendente'`` e grava o resultado em ``cadastro.midia``."""
     banco = BancoProcessamentoPDF(ConfigBanco.do_ambiente())
     backend = criar_backend(args.llm, args.modelo)
+    pasta_analise = None if args.sem_saida_analise else Path(args.saida) / "banco"
     processados = 0
 
     for _ in range(args.lote):
@@ -54,6 +87,10 @@ def processar_banco(args: argparse.Namespace, cfg: ConfigOCR) -> int:
                 if origem_id is not None:
                     banco.marcar_reutilizado(trabalho, origem_id, sha256)
                     print(f"  resultado reaproveitado da mídia {origem_id}")
+                    _gravar_saida_analise(
+                        pasta_analise, trabalho.id_midia,
+                        {"an5_status": "reutilizado", "origem_id_midia": origem_id, "an5_pdf_sha256": sha256},
+                    )
                     processados += 1
                     continue
 
@@ -67,15 +104,30 @@ def processar_banco(args: argparse.Namespace, cfg: ConfigOCR) -> int:
                         backend,
                     )
                 metricas = doc.resumo_metricas()
+                referencia, descricao = montar_referencia(extracao, resumo), descrever_confianca(metricas)
                 banco.concluir(
-                    trabalho, sha256, extracao, montar_referencia(extracao, resumo),
-                    metricas["confianca_media_ocr"], descrever_confianca(metricas),
+                    trabalho, sha256, extracao, referencia, metricas["confianca_media_ocr"], descricao,
                 )
                 print("  processamento concluído")
+                _gravar_saida_analise(
+                    pasta_analise, trabalho.id_midia,
+                    {
+                        "id_midia": trabalho.id_midia, "nome": trabalho.nome, "link": trabalho.link,
+                        "an5_status": "concluido", **campos_midia(extracao),
+                        "an5_confianca_media": metricas["confianca_media_ocr"],
+                        "an5_descricao": descricao, "an5_referencia": referencia,
+                        "an5_pdf_sha256": sha256,
+                    },
+                    doc, extracao, resumo,
+                )
                 processados += 1
         except Exception as erro:
             banco.falhar(trabalho, erro)
             print(f"  ERRO: {erro}")
+            _gravar_saida_analise(
+                pasta_analise, trabalho.id_midia,
+                {"id_midia": trabalho.id_midia, "link": trabalho.link, "erro": str(erro)},
+            )
     return processados
 
 
@@ -249,6 +301,8 @@ def main(argv: list[str] | None = None) -> None:
                     help="quantidade máxima de PDFs da fila a processar por execução (padrão: 1)")
     ap.add_argument("--id-midia", type=int,
                     help="processa somente este id_midia pendente; recomendado para testes")
+    ap.add_argument("--sem-saida-analise", action="store_true",
+                    help="no modo --banco, não grava a cópia temporária de análise em <saida>/banco/")
     ap.add_argument("--tipo-documento", type=int, action="append",
                     help=f"tipo_documento aceito pelo worker; repita para vários "
                          f"(padrão: {', '.join(map(str, TIPOS_DOCUMENTO_OCR))} = INCRA e matrícula)")

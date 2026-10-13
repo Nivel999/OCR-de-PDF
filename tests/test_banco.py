@@ -1,4 +1,5 @@
 import hashlib
+import json
 import os
 import sys
 import tempfile
@@ -17,7 +18,15 @@ EXTRACAO = {
         "nome_propriedade": [{"valor": "Fazenda Boa Vista", "pagina": 2}],
         "matricula_imovel": [{"valor": "  12.345 ", "pagina": 2}, {"valor": "99.999", "pagina": 4}],
         "area_total_imovel": [{"valor": "", "pagina": 3}],
-    }
+    },
+    "pessoas": [
+        {"nome": "Maria da Silva", "cpf_cnpj": "123.456.789-00", "papel": "proprietario",
+         "descricao_papel": None, "paginas": [1], "evidencia": "Proprietária: Maria da Silva"},
+        {"nome": "Banco Rural S.A.", "cpf_cnpj": None, "papel": "credor",
+         "descricao_papel": None, "paginas": [2, 4], "evidencia": "em favor do Banco Rural S.A."},
+        {"nome": "Ana Lima", "cpf_cnpj": None, "papel": "outro",
+         "descricao_papel": "inventariante", "paginas": [3], "evidencia": "inventariante Ana Lima"},
+    ],
 }
 
 
@@ -34,17 +43,27 @@ class TestBanco(unittest.TestCase):
         self.assertEqual(campos_midia(extracao)["an5_area_total_imovel"], texto)
 
     def test_mapeia_extracao_para_colunas_an5(self):
+        campos = campos_midia(EXTRACAO)
+        pessoas = json.loads(campos.pop("an5_pessoas"))
         self.assertEqual(
-            campos_midia(EXTRACAO),
+            campos,
             {"an5_matricula": "12.345", "an5_nome_imovel": "Fazenda Boa Vista", "an5_area_total_imovel": None},
         )
+        self.assertEqual(pessoas, EXTRACAO["pessoas"])
         self.assertEqual(set(campos_midia(None).values()), {None})
+
+    def test_pessoas_vazia_so_quando_a_extracao_rodou(self):
+        self.assertEqual(campos_midia({"campos": {}, "pessoas": []})["an5_pessoas"], "[]")
+        self.assertIsNone(campos_midia({"campos": {}})["an5_pessoas"])
 
     def test_referencia_lista_valores_com_pagina_e_resumo(self):
         referencia = montar_referencia(EXTRACAO, "Matrícula de imóvel rural.")
         self.assertIn("Proprietário: Maria da Silva (p. 1)", referencia)
         self.assertIn("Matrícula: 12.345 (p. 2); 99.999 (p. 4)", referencia)
         self.assertNotIn("Área total", referencia)
+        self.assertIn(
+            "Demais pessoas: Banco Rural S.A. (credor, p. 2, 4); Ana Lima (inventariante, p. 3)", referencia
+        )
         self.assertTrue(referencia.endswith("Resumo: Matrícula de imóvel rural."))
         self.assertIsNone(montar_referencia(None, None))
 

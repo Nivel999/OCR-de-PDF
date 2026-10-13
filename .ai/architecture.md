@@ -95,9 +95,9 @@ mesmo banco. As pastas `entrada/` e `saida/` não fazem parte do fluxo operacion
 Tudo fica em `cadastro.midia` (decisão de 2026-10-09; a antiga tabela
 `cadastro.midia_processamento_pdf` foi abandonada). O estado e o resultado do
 processamento usam colunas com prefixo `an5_`: `an5_matricula`, `an5_nome_imovel`,
-`an5_area_total_imovel`, `an5_confianca_media`, `an5_descricao`, `an5_referencia`,
+`an5_area_total_imovel`, `an5_pessoas`, `an5_confianca_media`, `an5_descricao`, `an5_referencia`,
 `an5_status`, `an5_tentativas`, `an5_data_transformacao` e `an5_pdf_sha256` (DDL em
-`sql/001_processamento_pdf.sql`).
+`sql/001_processamento_pdf.sql` e `sql/003_an5_pessoas.sql`).
 
 Os PDFs são separados por `cadastro.midia.tipo_documento` (FK `dominio.tipo_documento`):
 12 = Memorial Descritivo do INCRA e 13 = Matrícula passam pelo mesmo pipeline (texto

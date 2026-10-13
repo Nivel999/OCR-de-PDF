@@ -5,16 +5,23 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from ocr_pdf.analise_imovel import consolidar_consistencia, extrair_dados_imovel
+from ocr_pdf.analise_imovel import consolidar_consistencia, consolidar_pessoas, extrair_dados_imovel
 
 
 class BackendFalso:
     def gerar(self, sistema: str, mensagem: str) -> str:
         return json.dumps(
             {
+                "pessoas": [
+                    {"nome": "Maria da Silva", "cpf_cnpj": "123.456.789-00", "papel": "proprietario",
+                     "evidencia": "Proprietária: Maria da Silva, CPF 123.456.789-00"},
+                    {"nome": "José da Silva", "cpf_cnpj": "", "papel": "Conjuge",
+                     "evidencia": "casada com José da Silva"},
+                    {"nome": "Banco Rural S.A.", "papel": "credor", "evidencia": "em favor do Banco Rural S.A."},
+                    {"nome": "Ana Lima", "papel": "inventariante", "evidencia": "inventariante Ana Lima"},
+                    {"nome": "", "papel": "testemunha"},
+                ],
                 "campos": {
-                    "nome_proprietario": [{"valor": "Maria da Silva", "evidencia": "Proprietária: Maria da Silva"}],
-                    "cpf_cnpj": [{"valor": "123.456.789-00", "evidencia": "CPF 123.456.789-00"}],
                     "nome_propriedade": [],
                     "classificacao_dominio": [],
                     "matricula_imovel": [{"valor": "12.345", "evidencia": "Matrícula 12.345"}],
@@ -44,3 +51,38 @@ class TestAnaliseImovel(unittest.TestCase):
         self.assertEqual(consolidado["consistencia"]["nome_proprietario"]["status"], "consistente")
         self.assertEqual(consolidado["consistencia"]["matricula_imovel"]["status"], "divergente")
         self.assertEqual(len(consolidado["consistencia"]["matricula_imovel"]["valores"]), 2)
+
+    def test_extrai_todas_as_pessoas_com_papel(self):
+        extracao = extrair_dados_imovel("matricula.pdf", [(1, "texto"), (3, "texto")], BackendFalso())
+
+        pessoas = {pessoa["nome"]: pessoa for pessoa in extracao["pessoas"]}
+        self.assertEqual(set(pessoas), {"Maria da Silva", "José da Silva", "Banco Rural S.A.", "Ana Lima"})
+        self.assertEqual(pessoas["Maria da Silva"]["paginas"], [1, 3])
+        self.assertEqual(pessoas["Maria da Silva"]["cpf_cnpj"], "123.456.789-00")
+        self.assertEqual(pessoas["José da Silva"]["papel"], "conjuge")
+        self.assertIsNone(pessoas["José da Silva"]["cpf_cnpj"])
+        self.assertEqual(pessoas["Banco Rural S.A."]["papel"], "credor")
+        # Papel fora da lista vira "outro", preservando o que a LLM escreveu.
+        self.assertEqual(pessoas["Ana Lima"]["papel"], "outro")
+        self.assertEqual(pessoas["Ana Lima"]["descricao_papel"], "inventariante")
+
+    def test_proprietario_e_cpf_vem_da_lista_de_pessoas(self):
+        extracao = extrair_dados_imovel("matricula.pdf", [(2, "texto")], BackendFalso())
+
+        self.assertEqual([i["valor"] for i in extracao["campos"]["nome_proprietario"]], ["Maria da Silva"])
+        self.assertEqual([i["valor"] for i in extracao["campos"]["cpf_cnpj"]], ["123.456.789-00"])
+
+    def test_consolida_mesma_pessoa_ignorando_acento_e_caixa(self):
+        pessoas = consolidar_pessoas([
+            {"nome": "JOSÉ DA SILVA", "papel": "transmitente", "pagina": 4, "cpf_cnpj": None, "evidencia": ""},
+            {"nome": "Jose  da Silva", "papel": "transmitente", "pagina": 2, "cpf_cnpj": "111.222.333-44",
+             "evidencia": "vendedor Jose da Silva"},
+            {"nome": "José da Silva", "papel": "adquirente", "pagina": 1, "cpf_cnpj": None, "evidencia": ""},
+        ])
+
+        self.assertEqual(len(pessoas), 2)
+        transmitente = next(p for p in pessoas if p["papel"] == "transmitente")
+        self.assertEqual(transmitente["nome"], "JOSÉ DA SILVA")
+        self.assertEqual(transmitente["paginas"], [2, 4])
+        self.assertEqual(transmitente["cpf_cnpj"], "111.222.333-44")
+        self.assertEqual(transmitente["evidencia"], "vendedor Jose da Silva")
