@@ -90,6 +90,12 @@ class TestSepararAtos(unittest.TestCase):
         self.assertEqual(self.matricula.transferida_para, "45559")
         self.assertIn("Matrícula encerrada no AV-7.", self.matricula.alertas)
 
+    def test_letras_no_lugar_de_algarismos(self):
+        texto = "R-l-l.559:-Por Escritura Pública de Compra e Venda\nAV-2-1.559: Averbação\nR-3-l.559: Nos termos"
+        matricula = separar_atos([(1, texto)])
+        self.assertEqual(matricula.numero, "1559")
+        self.assertEqual([ato.rotulo for ato in matricula.atos], ["R-1", "AV-2", "R-3"])
+
     def test_sem_atos(self):
         matricula = separar_atos([(1, "Texto qualquer sem registros.")])
         self.assertEqual(matricula.atos, [])

@@ -20,11 +20,13 @@ from dataclasses import dataclass, field
 
 # Início de ato no começo da linha: tipo (R ou AV), número do ato e número da matrícula, com os
 # separadores que o OCR costuma trocar (-, =, —, ., /). "R$", "BR-280" e "nº 3/R=222" não casam.
+# Nos números, o OCR troca "1" por "l"/"I" e "0" por "O" (o PaddleOCR leu "R-l-l.559:").
 _MARCADOR_ATO = re.compile(
-    r"^[^\w\n]{0,3}(?P<tipo>R|A[ \t]?V)[ \t]*[-=—–.]*[ \t]*(?P<numero>\d{1,3})"
-    r"[ \t]*[-=—–/.]+[ \t]*(?P<matricula>\d(?:[\d.,]*\d)?)",
-    re.MULTILINE | re.IGNORECASE,
+    r"^[^\w\n]{0,3}(?P<tipo>R|A[ \t]?[Vv])[ \t]*[-=—–.]*[ \t]*(?P<numero>[\dlIO]{1,3})"
+    r"[ \t]*[-=—–/.]+[ \t]*(?P<matricula>[\dlIO](?:[\d.,lIO]*[\dlIO])?)",
+    re.MULTILINE,
 )
+_LETRA_PARA_ALGARISMO = str.maketrans("lIO", "110")
 _NUMERO_MATRICULA = re.compile(r"Matr[íi]cula\s*N[º°o]\s*[.:]?\s*(\d(?:[\d.,]*\d)?)", re.IGNORECASE)
 # Rótulo da abertura em maiúsculas seguido de dois-pontos no começo da linha ("PROPRIETÁRIOS:-",
 # "TITULO AQUISITIVO:"). O OCR troca letras ("PRCPRIBTÁRIO:-"), então o nome é comparado por semelhança.
@@ -66,6 +68,11 @@ class Matricula:
 
 def _digitos(texto: str) -> str:
     return re.sub(r"\D", "", texto)
+
+
+def _numero_lido(texto: str) -> str:
+    """Dígitos de um número do marcador, desfazendo as trocas de letra do OCR."""
+    return _digitos(texto.translate(_LETRA_PARA_ALGARISMO))
 
 
 def _distancia_edicao(a: str, b: str) -> int:
@@ -175,14 +182,14 @@ def _recuperar_numeros(candidatos: list, aceitos: list[int]) -> list[tuple[int, 
     Devolve (índice do candidato, número corrigido) quando tirar um dígito faz o número caber
     entre o ato aceito anterior e o seguinte.
     """
-    usados = {int(candidatos[i][1]["numero"]) for i in aceitos}
+    usados = {int(_numero_lido(candidatos[i][1]["numero"])) for i in aceitos}
     recuperados = []
     for indice, (_, achado) in enumerate(candidatos):
         if indice in aceitos:
             continue
-        anterior = max((int(candidatos[i][1]["numero"]) for i in aceitos if i < indice), default=0)
-        seguinte = min((int(candidatos[i][1]["numero"]) for i in aceitos if i > indice), default=10**4)
-        lido = achado["numero"]
+        anterior = max((int(_numero_lido(candidatos[i][1]["numero"])) for i in aceitos if i < indice), default=0)
+        seguinte = min((int(_numero_lido(candidatos[i][1]["numero"])) for i in aceitos if i > indice), default=10**4)
+        lido = _numero_lido(achado["numero"])
         for posicao in range(len(lido)):
             variante = lido[:posicao] + lido[posicao + 1:]
             if variante and anterior < int(variante) < seguinte and int(variante) not in usados:
@@ -199,11 +206,11 @@ def separar_atos(paginas: list[tuple[int, str]]) -> Matricula:
         for pagina, texto in paginas
         for achado in _MARCADOR_ATO.finditer(texto)
     ]
-    numero = _numero_da_matricula(paginas, [_digitos(a["matricula"]) for _, a in candidatos])
+    numero = _numero_da_matricula(paginas, [_numero_lido(a["matricula"]) for _, a in candidatos])
     if numero:
-        candidatos = [(p, a) for p, a in candidatos if _mesma_matricula(_digitos(a["matricula"]), numero)]
-    indices = _maior_subsequencia_crescente([int(a["numero"]) for _, a in candidatos])
-    numero_ato = {i: int(candidatos[i][1]["numero"]) for i in indices}
+        candidatos = [(p, a) for p, a in candidatos if _mesma_matricula(_numero_lido(a["matricula"]), numero)]
+    indices = _maior_subsequencia_crescente([int(_numero_lido(a["numero"])) for _, a in candidatos])
+    numero_ato = {i: int(_numero_lido(candidatos[i][1]["numero"])) for i in indices}
     corrigidos = _recuperar_numeros(candidatos, indices)
     numero_ato.update(corrigidos)
     aceitos = [(candidatos[i][0], candidatos[i][1], numero_ato[i]) for i in sorted(numero_ato)]
