@@ -1,6 +1,6 @@
 # OCR de PDF, resumo e análise documental de imóveis
 
-Lê todos os PDFs de `entrada/`, extrai o texto (nativo ou via OCR com Tesseract) e,
+Lê todos os PDFs de `entrada/`, extrai o texto (nativo ou via OCR com [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR)) e,
 opcionalmente, gera resumos e uma análise estruturada de documentação imobiliária com LLM.
 
 ## Como funciona
@@ -8,42 +8,42 @@ opcionalmente, gera resumos e uma análise estruturada de documentação imobili
 Para **cada página** do PDF:
 
 1. Tenta o texto nativo (PyMuPDF). Se a página tem texto de verdade, usa ele — rápido e sem erros.
-2. Se a página é imagem (pouco texto, texto ilegível ou coberta por imagem), faz OCR:
-   - renderiza a página a 300 DPI;
+2. Se a página é imagem (pouco texto, texto ilegível ou coberta por imagem), faz OCR com o PaddleOCR:
+   - renderiza a página a 300 DPI (600 no modo `--banco`);
    - detecta se está girada (90°/180°/270°) e endireita;
-   - aplica pré-processamento e roda o Tesseract (`por`); no modo `auto`, testa as estratégias
-     em ordem até a confiança passar de 80% e fica com a melhor.
+   - detecta e reconhece os trechos de texto (modelo latino, `pt`) e os junta em linhas.
 
 PDFs mistos (algumas páginas digitais, outras escaneadas) funcionam naturalmente.
-
-### Estratégias de pré-processamento (`--estrategia`)
-
-| Estratégia    | Quando usar |
-|---------------|-------------|
-| `cinza`       | Padrão. O Tesseract 5 (LSTM) binariza internamente e lida bem com marca d'água clara. |
-| `marca_dagua` | Remove pixels coloridos (carimbos, marca vermelha/azul) e clareia tons acima de um limiar automático. |
-| `otsu`        | Binarização global. Scans com fundo uniforme. |
-| `adaptativo`  | Limiar local. Sombras, iluminação irregular, fotos de documento. |
 
 Use `--debug-imagens` para ver em `saida/debug/` exatamente a imagem que foi para o OCR.
 
 ## Instalação (Windows)
 
+O PaddlePaddle só tem pacotes até o **Python 3.13** (não há para o 3.14):
+
 ```powershell
-scoop install tesseract          # binário do Tesseract 5
-python -m venv .venv
+py install 3.13                  # gerenciador de instalação do Python, só para o usuário
+py -V:3.13 -m venv .venv
 .venv\Scripts\pip install -r requirements.txt
 ```
 
-Os modelos de idioma ficam em `tessdata/` (`por` e `osd`; para outros idiomas, baixe o `.traineddata` correspondente). Para baixar de novo:
-`https://github.com/tesseract-ocr/tessdata` (padrão) ou `tessdata_best` (mais preciso, mais lento).
+Na primeira execução, o PaddleOCR baixa os modelos (~200 MB) para `%USERPROFILE%\.paddlex`.
+
+### Contornos do Paddle no Windows (já aplicados em `src/ocr_pdf/ocr.py`)
+
+- **Caminho com acento:** o motor do Paddle não abre modelos em pastas com acento
+  (ex.: `C:\Users\Usuário`) e falha com `json.exception.parse_error.101`. O código aponta
+  `PADDLE_PDX_CACHE_HOME` para o nome curto do Windows (`C:\Users\USURIO~2\.paddlex`). Se o
+  Windows não tiver nomes curtos, defina `PADDLE_PDX_CACHE_HOME` com uma pasta sem acento.
+- **oneDNN na CPU:** o Paddle 3.3 falha com `ConvertPirAttribute2RuntimeAttribute not support`
+  na detecção de texto; o OCR roda com `enable_mkldnn=False`.
 
 ## Uso
 
 ```powershell
 .venv\Scripts\python run.py                         # processa entrada/ -> saida/
-.venv\Scripts\python run.py --debug-imagens         # salva as imagens pré-processadas
-.venv\Scripts\python run.py --estrategia marca_dagua --reprocessar
+.venv\Scripts\python run.py --debug-imagens         # salva a imagem de cada página enviada ao OCR
+.venv\Scripts\python run.py --threads 4 --reprocessar   # limita as threads de CPU do Paddle
 .venv\Scripts\python run.py --forcar-ocr            # ignora texto nativo (ex.: camada OCR antiga ruim)
 .venv\Scripts\python run.py --monitorar 30          # vigia a pasta a cada 30s
 .venv\Scripts\python run.py --llm ollama --modelo qwen3:8b   # gera resumos com LLM local
@@ -57,7 +57,7 @@ PDFs já processados são pulados (a menos que o PDF mude ou se use `--reprocess
 ```
 saida/
   textos/<nome>.txt        texto extraído, com marcadores "--- Página N ---"
-  relatorios/<nome>.json   por página: método, motivo, confiança do OCR, estratégia, rotação
+  relatorios/<nome>.json   por página: método, motivo, confiança do OCR, rotação
   resumos/<nome>.md        resumo (se --llm for usado)
   extracoes/<nome>.json    dados imobiliários com evidência de página (se --analise-imovel)
   consistencia_imovel.json comparação dos dados entre todos os PDFs (se --analise-imovel)

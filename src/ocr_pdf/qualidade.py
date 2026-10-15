@@ -4,7 +4,7 @@ from __future__ import annotations
 
 
 def avaliar_confianca_ocr(confianca: float | None, dpi: int) -> dict:
-    """Traduz a confiança do Tesseract em uma orientação consumível pelo relatório/UI."""
+    """Traduz a confiança do OCR em uma orientação consumível pelo relatório/UI."""
     confianca = round(confianca or 0.0, 1)
     proximo_dpi = 400 if dpi < 400 else 600 if dpi < 600 else None
 

@@ -13,7 +13,7 @@ progresso e a qualidade de leitura por página.
 **Usuários principais:** pessoas que precisam digitalizar, revisar ou analisar
 documentos PDF, especialmente documentação imobiliária.
 
-**Stack atual:** Python, PyMuPDF, Tesseract, OpenCV, NumPy e Pillow. A arquitetura
+**Stack atual:** Python 3.13, PyMuPDF, PaddleOCR (PaddlePaddle), NumPy e Pillow. A arquitetura
 da interface React e sua integração com o processamento ainda serão definidos no
 kickoff.
 

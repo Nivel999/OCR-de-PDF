@@ -1,8 +1,10 @@
+# Python 3.9 a 3.13: o PaddlePaddle ainda não publica pacotes para o 3.14.
 pymupdf>=1.24
-pytesseract>=0.3.10
-opencv-python-headless>=4.9
 numpy>=1.26
 pillow>=10
 psycopg[binary]>=3.2
+# OCR. O contorno do oneDNN em ocr.py (enable_mkldnn=False) foi validado no 3.3.1.
+paddlepaddle==3.3.1
+paddleocr>=3.7,<4
 # Opcional: só para testar resumos com o Claude (--llm anthropic)
 # anthropic

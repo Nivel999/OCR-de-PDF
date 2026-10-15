@@ -18,7 +18,7 @@
 
 ## Contexto técnico atual
 
-- **Processamento:** Python com PyMuPDF, Tesseract, OpenCV, NumPy e Pillow.
+- **Processamento:** Python 3.13 com PyMuPDF, PaddleOCR (PaddlePaddle), NumPy e Pillow.
 - **Testes:** unittest em tests/.
 - **Interface:** uma aplicação React está planejada, mas ainda não tem arquitetura
   ou ferramentas escolhidas.

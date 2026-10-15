@@ -2,16 +2,12 @@
 
 from __future__ import annotations
 
-import os
 import time
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-import cv2
 import numpy as np
 import pymupdf
-import pytesseract
 
 from .config import ConfigOCR
 from .ocr import ocr_pagina
@@ -25,7 +21,6 @@ class Pagina:
     motivo: str  # por que esse método foi escolhido
     texto: str
     confianca: float | None = None
-    estrategia: str | None = None
     rotacao: int = 0
     dpi_ocr: int | None = None
 
@@ -126,67 +121,32 @@ def decidir_metodo(pagina: pymupdf.Page, texto_nativo: str, cfg: ConfigOCR) -> t
     return "nativo", "PDF já tem texto"
 
 
-def _renderizar(pagina: pymupdf.Page, dpi: int) -> np.ndarray:
-    pix = pagina.get_pixmap(dpi=dpi, colorspace=pymupdf.csRGB, alpha=False)
-    return np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, 3).copy()
-
-
-def _preparar_ocr(cfg: ConfigOCR) -> None:
-    pytesseract.pytesseract.tesseract_cmd = cfg.tesseract_cmd
-    if cfg.tessdata_dir:
-        os.environ["TESSDATA_PREFIX"] = cfg.tessdata_dir
-    # Com várias páginas em paralelo, cada Tesseract usa 1 thread (evita disputa de CPU).
-    if cfg.workers > 1:
-        os.environ.setdefault("OMP_THREAD_LIMIT", "1")
-
-
 def _processar_ocr(
-    numero: int, img: np.ndarray, motivo: str, cfg: ConfigOCR, pasta_debug: Path | None
+    numero: int, pagina: pymupdf.Page, motivo: str, cfg: ConfigOCR, pasta_debug: Path | None
 ) -> Pagina:
-    res, imagens = ocr_pagina(img, cfg)
+    pix = pagina.get_pixmap(dpi=cfg.dpi, colorspace=pymupdf.csRGB, alpha=False)
     if pasta_debug is not None:
         pasta_debug.mkdir(parents=True, exist_ok=True)
-        for nome, im in imagens.items():
-            cv2.imwrite(str(pasta_debug / f"p{numero:03d}_{nome}.png"), im)
-    return Pagina(
-        numero,
-        "ocr",
-        motivo,
-        res.texto,
-        res.confianca,
-        res.estrategia,
-        res.rotacao,
-        dpi_ocr=cfg.dpi,
-    )
+        pix.save(pasta_debug / f"p{numero:03d}_{cfg.dpi}dpi.png")
+    img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, 3).copy()
+    res = ocr_pagina(img, cfg)
+    return Pagina(numero, "ocr", motivo, res.texto, res.confianca, res.rotacao, dpi_ocr=cfg.dpi)
 
 
 def extrair_pdf(caminho: Path, cfg: ConfigOCR, pasta_debug: Path | None = None) -> Documento:
-    _preparar_ocr(cfg)
-
     inicio = time.perf_counter()
     doc = Documento(arquivo=caminho.name, dpi_ocr=cfg.dpi)
-    resultados: dict[int, Pagina] = {}
 
-    with pymupdf.open(caminho) as pdf, ThreadPoolExecutor(max_workers=cfg.workers) as pool:
-        pendentes = []
+    # Uma página por vez: o PaddleOCR não é seguro entre threads e já usa ``cfg.threads`` por dentro.
+    with pymupdf.open(caminho) as pdf:
         for i, pagina in enumerate(pdf, start=1):
             texto_nativo = pagina.get_text("text", sort=True)
             metodo, motivo = decidir_metodo(pagina, texto_nativo, cfg)
             if metodo == "nativo":
-                resultados[i] = Pagina(i, "nativo", motivo, texto_nativo.strip())
-                continue
-            # A renderização (PyMuPDF) fica na thread principal; só o OCR vai para o pool.
-            img = _renderizar(pagina, cfg.dpi)
-            pendentes.append(pool.submit(_processar_ocr, i, img, motivo, cfg, pasta_debug))
-            # Limita quantas páginas renderizadas ficam em memória ao mesmo tempo.
-            if len(pendentes) >= cfg.workers * 2:
-                p = pendentes.pop(0).result()
-                resultados[p.numero] = p
-        for f in pendentes:
-            p = f.result()
-            resultados[p.numero] = p
+                doc.paginas.append(Pagina(i, "nativo", motivo, texto_nativo.strip()))
+            else:
+                doc.paginas.append(_processar_ocr(i, pagina, motivo, cfg, pasta_debug))
 
-    doc.paginas = [resultados[n] for n in sorted(resultados)]
     doc.segundos = time.perf_counter() - inicio
     return doc
 
@@ -195,17 +155,14 @@ def reprocessar_paginas(
     caminho: Path, cfg: ConfigOCR, numeros: list[int], pasta_debug: Path | None = None
 ) -> tuple[dict[int, Pagina], float]:
     """Executa OCR novamente somente nas páginas indicadas, usando o DPI de ``cfg``."""
-    _preparar_ocr(cfg)
     inicio = time.perf_counter()
     atualizadas: dict[int, Pagina] = {}
 
     with pymupdf.open(caminho) as pdf:
         for numero in sorted(set(numeros)):
-            pagina = pdf[numero - 1]
-            img = _renderizar(pagina, cfg.dpi)
             atualizadas[numero] = _processar_ocr(
                 numero,
-                img,
+                pdf[numero - 1],
                 f"reprocessada em {cfg.dpi} DPI após confiança baixa",
                 cfg,
                 pasta_debug,

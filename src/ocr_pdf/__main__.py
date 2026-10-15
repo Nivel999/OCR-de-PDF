@@ -22,7 +22,6 @@ from .banco import (
 )
 from .config import RAIZ_PROJETO, ConfigOCR
 from .extrator import Documento, extrair_pdf, reprocessar_paginas
-from .preprocessamento import ESTRATEGIAS
 from .qualidade import avaliar_confianca_ocr
 from .resumo import criar_backend, resumir
 
@@ -229,7 +228,7 @@ def processar_pasta(args: argparse.Namespace, cfg: ConfigOCR) -> int:
             continue
 
         for p in doc.paginas:
-            info = f"conf {p.confianca:.0f}% [{p.estrategia}]" if p.metodo == "ocr" else ""
+            info = f"conf {p.confianca:.0f}%" if p.metodo == "ocr" else ""
             if p.rotacao:
                 info += f" rotacionada {p.rotacao}°"
             print(f"  pág {p.numero:>3}: {p.metodo:<6} {len(p.texto):>6} chars  {info}  ({p.motivo})")
@@ -281,15 +280,12 @@ def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(prog="ocr_pdf", description=__doc__.splitlines()[0])
     ap.add_argument("--entrada", default=str(RAIZ_PROJETO / "entrada"), help="pasta com os PDFs")
     ap.add_argument("--saida", default=str(RAIZ_PROJETO / "saida"), help="pasta de resultados")
-    ap.add_argument("--idioma", default="por", help="idioma(s) do Tesseract, ex.: por ou por+eng")
+    ap.add_argument("--idioma", default="pt", help="idioma do PaddleOCR, ex.: pt ou en (padrão: pt)")
     ap.add_argument("--dpi", type=int, default=300, help="resolução para renderizar páginas (300 é o ideal)")
-    ap.add_argument("--estrategia", default="auto", choices=["auto", *ESTRATEGIAS],
-                    help="pré-processamento; 'auto' testa várias e escolhe a melhor")
-    ap.add_argument("--psm", type=int, default=3, help="modo de segmentação de página do Tesseract")
     ap.add_argument("--forcar-ocr", action="store_true", help="faz OCR mesmo em páginas com texto nativo")
-    ap.add_argument("--workers", type=int, help="páginas processadas em paralelo")
+    ap.add_argument("--threads", type=int, help="threads de CPU do PaddleOCR (padrão: todos os núcleos)")
     ap.add_argument("--debug-imagens", action="store_true",
-                    help="salva as imagens pré-processadas em saida/debug/")
+                    help="salva em saida/debug/ a imagem de cada página enviada ao OCR")
     ap.add_argument("--reprocessar", action="store_true", help="refaz PDFs que já têm saída")
     ap.add_argument("--llm", default="nenhum", choices=["nenhum", "ollama", "anthropic"],
                     help="backend para gerar resumos")
@@ -321,10 +317,10 @@ def main(argv: list[str] | None = None) -> None:
     if args.lote < 1:
         ap.error("--lote deve ser maior ou igual a 1")
 
-    cfg = ConfigOCR(idioma=args.idioma, dpi=600 if args.banco else args.dpi, estrategia=args.estrategia, psm=args.psm,
+    cfg = ConfigOCR(idioma=args.idioma, dpi=600 if args.banco else args.dpi,
                     forcar_ocr=args.forcar_ocr, debug_imagens=args.debug_imagens)
-    if args.workers:
-        cfg.workers = args.workers
+    if args.threads:
+        cfg.threads = args.threads
 
     if args.banco:
         if not args.monitorar:
